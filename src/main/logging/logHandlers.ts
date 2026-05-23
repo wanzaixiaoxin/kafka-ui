@@ -6,7 +6,7 @@
  */
 import { ipcMain } from 'electron'
 import { logService } from '../logging/logService'
-import type { LogEntry } from '../../renderer/src/types/kafka'
+import type { LogEntry } from '../../shared/types'
 
 /** 保存原始 console 方法 */
 const origConsole = {

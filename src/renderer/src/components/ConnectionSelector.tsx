@@ -5,16 +5,20 @@ import type { KafkaConnection } from '../types/kafka'
 
 const { Text } = Typography
 
-/** 连接选择器组件 - 用于在顶部选择当前 Kafka 连接，带状态指示和 Tooltip */
+/** 连接选择器组件 - 用于在顶部选择当前 Kafka 连接 */
 export default function ConnectionSelector(): JSX.Element {
   const [conns, setConns] = useState<KafkaConnection[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  /** 加载连接列表 */
+  /** 加载连接列表和当前激活 ID */
   const load = useCallback(async (): Promise<void> => {
     try {
-      const list = await kafkaApiClient.connections.list()
+      const [list, id] = await Promise.all([
+        kafkaApiClient.connections.list(),
+        kafkaApiClient.connections.activeId()
+      ])
       setConns(list)
+      setActiveId(id)
     } catch {
       /* 忽略加载错误 */
     }
@@ -30,7 +34,6 @@ export default function ConnectionSelector(): JSX.Element {
   /** 切换连接（带确认弹窗） */
   const onChange = async (id: string): Promise<void> => {
     if (activeId && id !== activeId) {
-      /* 切换连接时确认 */
       Modal.confirm({
         title: '切换连接',
         content: '切换连接将停止当前所有正在运行的消费者，确认继续？',
@@ -51,7 +54,6 @@ export default function ConnectionSelector(): JSX.Element {
         }
       })
     } else {
-      /* 首次选择连接，无需确认 */
       try {
         const res = await kafkaApiClient.connections.use(id)
         if (res.success) {

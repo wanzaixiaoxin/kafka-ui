@@ -1,28 +1,37 @@
 import { useState, useEffect } from 'react'
 import { Card, Form, InputNumber, Select, Button, Divider, Typography, message, Space } from 'antd'
 import { SettingOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { loadSettings, saveSettings, type AppSettings } from '../utils/settings'
+import { loadSettings, saveSettings, setCachedSettings, type AppSettings } from '../utils/settings'
 
 const { Text, Paragraph } = Typography
+
+const DEFAULTS: AppSettings = {
+  maxMessages: 500,
+  autoRefreshInterval: 0,
+  theme: 'light'
+}
 
 /** 设置页面 - 应用配置和偏好设置 */
 export default function Settings(): JSX.Element {
   const [form] = Form.useForm()
-  const [settings, setSettings] = useState<AppSettings>(loadSettings())
+  const [settings, setSettings] = useState<AppSettings>(DEFAULTS)
 
-  /** 挂载时加载设置 */
+  /** 挂载时从主进程加载设置 */
   useEffect(() => {
-    const s = loadSettings()
-    setSettings(s)
-    form.setFieldsValue(s)
+    loadSettings().then((s) => {
+      setSettings(s)
+      setCachedSettings(s)
+      form.setFieldsValue(s)
+    })
   }, [form])
 
   /** 保存设置 */
-  const onSave = (): void => {
+  const onSave = async (): Promise<void> => {
     try {
       const vals = form.getFieldsValue()
-      const next = saveSettings(vals)
+      const next = await saveSettings(vals)
       setSettings(next)
+      setCachedSettings(next)
       message.success('设置已保存')
     } catch {
       message.error('保存设置失败')
@@ -30,15 +39,11 @@ export default function Settings(): JSX.Element {
   }
 
   /** 重置为默认设置 */
-  const onReset = (): void => {
-    const defaults: AppSettings = {
-      maxMessages: 500,
-      autoRefreshInterval: 0,
-      theme: 'light'
-    }
-    form.setFieldsValue(defaults)
-    const next = saveSettings(defaults)
+  const onReset = async (): Promise<void> => {
+    form.setFieldsValue(DEFAULTS)
+    const next = await saveSettings(DEFAULTS)
     setSettings(next)
+    setCachedSettings(next)
     message.info('已恢复默认设置')
   }
 

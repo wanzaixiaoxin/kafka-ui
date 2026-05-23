@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import { ConfigProvider, theme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
@@ -10,16 +11,16 @@ import Producer from './pages/Producer'
 import Consumer from './pages/Consumer'
 import ConsumerGroups from './pages/ConsumerGroups'
 import Settings from './pages/Settings'
-import { loadSettings } from './utils/settings'
+import { loadSettings, setCachedSettings, type AppSettings } from './utils/settings'
+
+const DEFAULTS: AppSettings = { maxMessages: 500, autoRefreshInterval: 0, theme: 'light' }
 
 /** 根据设置获取 antd 主题算法 */
-function getThemeAlgorithm() {
-  const settings = loadSettings()
-  switch (settings.theme) {
+function getThemeAlgorithm(settingsTheme: string) {
+  switch (settingsTheme) {
     case 'dark':
       return theme.darkAlgorithm
     case 'system':
-      /* 跟随系统偏好 */
       return window.matchMedia('(prefers-color-scheme: dark)').matches
         ? theme.darkAlgorithm
         : theme.defaultAlgorithm
@@ -30,7 +31,16 @@ function getThemeAlgorithm() {
 
 /** 应用根组件 - 配置路由、主题和错误边界 */
 export default function App(): JSX.Element {
-  const algorithm = getThemeAlgorithm()
+  const [settings, setSettings] = useState<AppSettings>(DEFAULTS)
+
+  useEffect(() => {
+    loadSettings().then((s) => {
+      setSettings(s)
+      setCachedSettings(s)
+    })
+  }, [])
+
+  const algorithm = getThemeAlgorithm(settings.theme)
 
   return (
     <ErrorBoundary>

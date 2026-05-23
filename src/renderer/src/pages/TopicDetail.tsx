@@ -266,7 +266,7 @@ export default function TopicDetail(): JSX.Element {
               <InputNumber
                 style={{ width: 150 }}
                 min={0}
-                value={msgOffset || undefined}
+                value={msgOffset ? Number(msgOffset) : undefined}
                 onChange={(v) => setMsgOffset(v != null ? String(v) : '')}
                 placeholder="留空则从最早开始"
               />

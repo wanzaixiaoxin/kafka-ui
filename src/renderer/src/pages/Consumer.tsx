@@ -7,7 +7,7 @@ import { InboxOutlined, WarningOutlined } from '@ant-design/icons'
 import MessageTable from '../components/MessageTable'
 import JsonViewer from '../components/JsonViewer'
 import { kafkaApiClient } from '../services/kafkaApiClient'
-import { getSetting } from '../utils/settings'
+import { getCachedSettings } from '../utils/settings'
 import type { ConsumedMessage, TopicInfo } from '../types/kafka'
 
 /** 消息消费页面 */
@@ -17,7 +17,7 @@ export default function Consumer(): JSX.Element {
   const [topics, setTopics] = useState<TopicInfo[]>([])
   const [partition, setPartition] = useState<number | undefined>(undefined)
   const [partitionCount, setPartitionCount] = useState(0)
-  const [fromType, setFromType] = useState<'latest' | 'earliest' | 'offset'>('latest')
+  const [fromType, setFromType] = useState<'latest' | 'earliest' | 'offset'>('earliest')
   const [fromOffset, setFromOffset] = useState<number>(0)
   const [running, setRunning] = useState(false)
   const [msgs, setMsgs] = useState<ConsumedMessage[]>([])
@@ -28,9 +28,10 @@ export default function Consumer(): JSX.Element {
   const [topicsLoading, setTopicsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const unsubRef = useRef<(() => void) | null>(null)
+  const consumerIdRef = useRef<string | null>(null)
 
-  /** 从设置中获取最大消息数量 */
-  const maxMsgs = getSetting('maxMessages')
+  /** 从设置缓存中获取最大消息数量 */
+  const maxMsgs = getCachedSettings()?.maxMessages ?? 500
 
   /** 加载 topic 列表 */
   const loadTopics = useCallback(async (): Promise<void> => {
@@ -61,8 +62,9 @@ export default function Consumer(): JSX.Element {
     return () => {
       /* 卸载时停止消费者并移除监听 */
       unsubRef.current?.()
-      if (consumerId) {
-        kafkaApiClient.consumer.stop(consumerId).catch(() => {})
+      const cid = consumerIdRef.current
+      if (cid) {
+        kafkaApiClient.consumer.stop(cid).catch(() => {})
       }
     }
   }, [loadTopics])
@@ -121,6 +123,7 @@ export default function Consumer(): JSX.Element {
         return
       }
       setConsumerId(res.consumerId)
+      consumerIdRef.current = res.consumerId
       setRunning(true)
       message.success('开始消费')
     } catch (err: unknown) {
@@ -140,6 +143,7 @@ export default function Consumer(): JSX.Element {
       }
       setRunning(false)
       setConsumerId(null)
+      consumerIdRef.current = null
       message.info('已停止消费')
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '停止消费失败')

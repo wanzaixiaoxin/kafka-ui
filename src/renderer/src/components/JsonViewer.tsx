@@ -1,7 +1,16 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Button, Typography, message } from 'antd'
 
 const { Text } = Typography
+
+/** HTML 特殊字符转义 */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 
 interface JsonViewerProps {
   /** 原始字符串数据，可能是 JSON */
@@ -12,18 +21,15 @@ interface JsonViewerProps {
 export default function JsonViewer({ data }: JsonViewerProps): JSX.Element {
   const [copied, setCopied] = useState(false)
 
-  /** 尝试解析并格式化 JSON */
-  let formatted: string
-  let isJson = false
-  try {
-    const obj = JSON.parse(data)
-    formatted = JSON.stringify(obj, null, 2)
-    isJson = true
-  } catch {
-    formatted = data
-  }
+  const { formatted, isJson } = useMemo(() => {
+    try {
+      const obj = JSON.parse(data)
+      return { formatted: JSON.stringify(obj, null, 2), isJson: true }
+    } catch {
+      return { formatted: data, isJson: false }
+    }
+  }, [data])
 
-  /** 复制内容到剪贴板 */
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(formatted)
@@ -70,25 +76,30 @@ export default function JsonViewer({ data }: JsonViewerProps): JSX.Element {
   )
 }
 
-/** 简易 JSON 语法高亮 */
+/** JSON 语法高亮 - 先转义 HTML 再注入 span 标签 */
 function SyntaxHighlight({ json }: { json: string }): JSX.Element {
-  /* 使用正则进行基础语法高亮 */
-  const highlighted = json.replace(
-    /("(?:\\.|[^"\\])*")\s*:/g,
-    '<span style="color:#a31515">$1</span>:'
-  ).replace(
-    /:\s*("(?:\\.|[^"\\])*")/g,
-    ': <span style="color:#0b7500">$1</span>'
-  ).replace(
-    /:\s*(\d+\.?\d*)/g,
-    ': <span style="color:#1a1aaa">$1</span>'
-  ).replace(
-    /:\s*(true|false)/g,
-    ': <span style="color:#1a1aaa">$1</span>'
-  ).replace(
-    /:\s*(null)/g,
-    ': <span style="color:#1a1aaa">$1</span>'
-  )
+  const escaped = escapeHtml(json)
+  const highlighted = escaped
+    .replace(
+      /(&quot;(?:\\.|[^&quot;\\])*?&quot;)\s*:/g,
+      '<span style="color:#a31515">$1</span>:'
+    )
+    .replace(
+      /:\s*(&quot;(?:\\.|[^&quot;\\])*?&quot;)/g,
+      ': <span style="color:#0b7500">$1</span>'
+    )
+    .replace(
+      /:\s*(\d+\.?\d*)/g,
+      ': <span style="color:#1a1aaa">$1</span>'
+    )
+    .replace(
+      /:\s*(true|false)/g,
+      ': <span style="color:#1a1aaa">$1</span>'
+    )
+    .replace(
+      /:\s*(null)/g,
+      ': <span style="color:#1a1aaa">$1</span>'
+    )
 
   return <span dangerouslySetInnerHTML={{ __html: highlighted }} />
 }

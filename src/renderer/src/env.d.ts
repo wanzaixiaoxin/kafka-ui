@@ -2,5 +2,5 @@
 
 interface Window {
   electron: unknown
-  api: typeof import('./services/kafkaApiClient')['kafkaApiClient']
+  api: typeof import('../../preload/kafkaApi')['kafkaApi']
 }

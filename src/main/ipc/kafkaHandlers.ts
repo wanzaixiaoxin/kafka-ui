@@ -5,284 +5,195 @@ import { listTopics, describeTopic, getTopicOffsets } from '../kafka/topicServic
 import { producerSvc } from '../kafka/producerService'
 import { consumerSvc } from '../kafka/consumerService'
 import { listGroups, describeGroup } from '../kafka/groupService'
-import type { KafkaConnection, ConnectionTestResult } from '../../renderer/src/types/kafka'
+import type { Admin, Producer } from 'kafkajs'
+import type { KafkaConnection, ConnectionTestResult } from '../../shared/types'
+
+/** 获取当前激活连接 ID，无则返回错误 */
+function requireActiveId(): string | { error: string } {
+  const activeId = store.getActive()
+  if (!activeId) {
+    return { error: '没有激活的连接，请先选择一个连接' }
+  }
+  return activeId
+}
+
+/** 将错误转换为 ErrorResult */
+function toErrorResult(err: unknown): { error: string } {
+  const msg = err instanceof Error ? err.message : String(err)
+  return { error: msg }
+}
 
 /** 注册所有 Kafka 相关的 IPC 处理器 */
 export function registerKafkaHandlers(): void {
   /* ---- 连接管理 ---- */
 
-  /** 获取所有连接列表 */
   ipcMain.handle('kafka:connection:list', (): KafkaConnection[] => {
     return store.list()
   })
 
-  /** 保存连接（新增或更新） */
   ipcMain.handle('kafka:connection:save', (_e, conn: Partial<KafkaConnection> & { name: string; brokers: string[] }): KafkaConnection => {
     return store.save(conn)
   })
 
-  /** 删除连接 */
-  ipcMain.handle('kafka:connection:remove', (_e, id: string): { success: boolean; error?: string } => {
-    /* 不允许删除当前激活连接 */
+  ipcMain.handle('kafka:connection:remove', async (_e, id: string): Promise<{ success: boolean; error?: string }> => {
     if (store.getActive() === id) {
       return { success: false, error: '无法删除当前正在使用的连接' }
     }
-    connMgr.disconnect(id)
+    await connMgr.disconnect(id)
     const ok = store.remove(id)
     return { success: ok }
   })
 
-  /** 测试连接 */
   ipcMain.handle('kafka:connection:test', async (_e, conn: KafkaConnection): Promise<ConnectionTestResult> => {
     return await connMgr.testConnection(conn)
   })
 
-  /** 切换激活连接 */
   ipcMain.handle('kafka:connection:use', (_e, id: string): { success: boolean; error?: string } => {
     const found = store.list().find((c) => c.id === id)
     if (!found) {
       return { success: false, error: '连接不存在' }
     }
     store.setActive(id)
-    /* 预创建 Kafka 实例 */
     connMgr.getActiveKafka(found)
-    /* 切换连接时停止所有消费者 + 清理查询池 */
     consumerSvc.stopAll().catch(() => { /* 忽略 */ })
-    consumerSvc.resetPool().catch(() => { /* 忽略 */ })
     return { success: true }
   })
 
-  /* ---- 通用 Kafka 操作 ---- */
-
-  ipcMain.handle('kafka:connect', async (_e, _connId: string) => {
-    return { success: true }
+  ipcMain.handle('kafka:connection:activeId', (): string | null => {
+    return store.getActive()
   })
 
-  ipcMain.handle('kafka:disconnect', async (_e, _connId: string) => {
-    return { success: true }
-  })
+  /* ---- Topic 操作（使用池化 Admin） ---- */
 
-  /* ---- Topic 操作 ---- */
-
-  /** 获取 Topic 列表，可选是否显示内部 Topic */
   ipcMain.handle('kafka:topic:list', async (_e, showInternal?: boolean) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
-    const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     try {
-      const topics = await listTopics(kafka)
-      /* 根据 showInternal 参数过滤内部 Topic */
+      const admin = await connMgr.getAdmin(activeId)
+      if (!admin) return { error: 'Kafka 客户端未就绪，请重新选择连接' }
+      const topics = await listTopics(admin)
       if (!showInternal) {
         return topics.filter((t) => !t.isInternal)
       }
       return topics
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
-  /** 获取 Topic 详情 */
   ipcMain.handle('kafka:topic:describe', async (_e, topic: string) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
-    const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     try {
-      const detail = await describeTopic(kafka, topic)
-      return detail
+      const admin = await connMgr.getAdmin(activeId) as Admin
+      return await describeTopic(admin, topic)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
-  /** 获取 Topic Offset 信息 */
   ipcMain.handle('kafka:topic:offsets', async (_e, topic: string) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
-    const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     try {
-      const offsets = await getTopicOffsets(kafka, topic)
-      return offsets
+      const admin = await connMgr.getAdmin(activeId) as Admin
+      return await getTopicOffsets(admin, topic)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
-  /** 拉取 Topic 消息（一次性批量拉取） */
   ipcMain.handle('kafka:topic:messages', async (_e, opts) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    if (!kafka) return { error: 'Kafka 客户端未就绪，请重新选择连接' }
     try {
-      const messages = await consumerSvc.fetchMessages(kafka, opts)
-      return messages
+      return await consumerSvc.fetchMessages(kafka, opts)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
-  /* ---- 旧版 Topic 操作（保留兼容） ---- */
-  ipcMain.handle('kafka:listTopics', async (_e, _connId: string) => {
-    return []
-  })
+  /* ---- 生产者（使用池化 Producer） ---- */
 
-  ipcMain.handle('kafka:getTopicDetail', async (_e, _connId: string, _topic: string) => {
-    return null
-  })
-
-  ipcMain.handle('kafka:createTopic', async (_e, _connId: string, _config: unknown) => {
-    return { success: true }
-  })
-
-  ipcMain.handle('kafka:deleteTopic', async (_e, _connId: string, _topic: string) => {
-    return { success: true }
-  })
-
-  /* ---- 生产者 ---- */
-  ipcMain.handle('kafka:produce', async (_e, _connId: string, _msg: unknown) => {
-    return { success: true }
-  })
-
-  /** 发送消息 */
-  ipcMain.handle('kafka:producer:send', async (event, msg) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
-    const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+  ipcMain.handle('kafka:producer:send', async (_e, msg) => {
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     try {
-      const result = await producerSvc.send(kafka, msg)
-      return result
+      const producer = await connMgr.getProducer(activeId) as Producer
+      return await producerSvc.send(producer, msg)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
   /* ---- 消费者 ---- */
-  ipcMain.handle('kafka:consume', async (_e, _connId: string, _config: unknown) => {
-    return []
-  })
 
-  ipcMain.handle('kafka:stopConsume', async (_e, _connId: string) => {
-    return { success: true }
-  })
-
-  /** 启动消费者 */
   ipcMain.handle('kafka:consumer:start', async (event, opts) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    if (!kafka) return { error: 'Kafka 客户端未就绪，请重新选择连接' }
     try {
       const consumerId = await consumerSvc.start(kafka, opts, (msg) => {
-        /* 通过 IPC 事件推送消息到渲染进程 */
         event.sender.send('kafka:consumer:message', msg)
       })
       return { consumerId }
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      return { error: errMsg }
+      return toErrorResult(err)
     }
   })
 
-  /** 停止消费者 */
   ipcMain.handle('kafka:consumer:stop', async (_e, consumerId: string) => {
     try {
       await consumerSvc.stop(consumerId)
       return { success: true }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { success: false, error: msg }
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
 
-  /** 停止所有消费者 */
   ipcMain.handle('kafka:consumer:stopAll', async () => {
     try {
       await consumerSvc.stopAll()
       return { success: true }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { success: false, error: msg }
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
 
-  /* ---- 消费者组 ---- */
+  /* ---- 消费者组（使用池化 Admin） ---- */
 
-  /** 获取消费者组列表 */
   ipcMain.handle('kafka:group:list', async () => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
-    const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     try {
-      const groups = await listGroups(kafka)
-      return groups
+      const admin = await connMgr.getAdmin(activeId) as Admin
+      return await listGroups(admin)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
-  /** 获取消费者组详情 */
   ipcMain.handle('kafka:group:describe', async (_e, groupId: string) => {
-    const activeId = store.getActive()
-    if (!activeId) {
-      return { error: '没有激活的连接，请先选择一个连接' }
-    }
-    const kafka = connMgr.get(activeId)
-    if (!kafka) {
-      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
-    }
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
     try {
-      const detail = await describeGroup(kafka, groupId)
-      return detail
+      const admin = await connMgr.getAdmin(activeId) as Admin
+      return await describeGroup(admin, groupId)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
+      return toErrorResult(err)
     }
   })
 
-  ipcMain.handle('kafka:listGroups', async (_e, _connId: string) => {
-    return []
+  /* ---- 设置 ---- */
+
+  ipcMain.handle('settings:get', () => {
+    return store.getSettings()
   })
 
-  ipcMain.handle('kafka:getGroupDetail', async (_e, _connId: string, _groupId: string) => {
-    return null
+  ipcMain.handle('settings:update', (_e, s: Partial<store.AppSettings>) => {
+    return store.updateSettings(s)
   })
 }

@@ -1,301 +1,209 @@
 import type { Kafka, Consumer as KConsumer } from 'kafkajs'
 import { randomUUID } from 'crypto'
-import type { ConsumedMessage, ConsumerOptions, FetchMessagesOptions } from '../../renderer/src/types/kafka'
+import type { ConsumedMessage, ConsumerOptions, FetchMessagesOptions } from '../../shared/types'
 
-/** 消息回调类型 */
 export type MsgCallback = (msg: ConsumedMessage) => void
 
-/** 活跃消费者记录 */
-interface ActiveConsumer {
-  consumer: KConsumer
-  consumerId: string
-}
-
-/* ------------------------------------------------------------------ */
-/*  查询请求上下文                                                        */
-/* ------------------------------------------------------------------ */
-interface FetchRequest {
-  targetPartition: number | undefined
-  messages: ConsumedMessage[]
-  maxToCollect: number
-  resolve: (msgs: ConsumedMessage[]) => void
-  timer: ReturnType<typeof setTimeout> | null
-}
-
-/** 消费者服务 */
 export class ConsumerService {
   /* ================================================================
-   *  实时消费者（start / stop）
+   *  实时消费者（start / stop）—— 固定 groupId，实例持久化
+   *
+   *  策略：
+   *   - groupId = `live-${topic}`，同一 topic 永远同一组
+   *   - stop 只停 fetch loop，不 disconnect；consumer 留在 livePool
+   *   - 再次 start 时复用已有 consumer，直接 run
+   *   - 首次 GROUP_JOIN ~3s，后续因 group 已存在于 broker，快很多
    * ================================================================ */
-  private consumers: Map<string, ActiveConsumer> = new Map()
+  private livePool = new Map<string, {      // key = topic
+    consumer: KConsumer
+    groupId: string
+  }>()
+  private liveActive = new Map<string, {    // key = consumerId
+    consumer: KConsumer
+    partition?: number
+    onMsg: MsgCallback
+  }>()
 
   async start(kafka: Kafka, opts: ConsumerOptions, onMsg: MsgCallback): Promise<string> {
+    const { topic } = opts
+    const groupId = `live-${topic}`
     const consumerId = randomUUID()
-    const consumer = kafka.consumer({ groupId: `kafka-client-consumer-${consumerId}` })
 
-    await consumer.connect()
-    await consumer.subscribe({ topic: opts.topic, fromBeginning: opts.fromBeginning ?? false })
+    let consumer: KConsumer
+    let isNew = false
+    const pooled = this.livePool.get(topic)
 
-    this.consumers.set(consumerId, { consumer, consumerId })
+    if (pooled) {
+      /* 复用：先 stop 残留的 fetch loop */
+      try { await pooled.consumer.stop() } catch { /**/ }
+      consumer = pooled.consumer
+      console.log(`[live] 复用 consumer topic=${topic}`)
+    } else {
+      consumer = kafka.consumer({ groupId })
+      await consumer.connect()
+      await consumer.subscribe({ topic, fromBeginning: opts.fromBeginning ?? true })
+      this.livePool.set(topic, { consumer, groupId })
+      isNew = true
+      console.log(`[live] 新建 consumer topic=${topic}`)
+    }
 
-    const targetPartition = opts.partition
-    const targetOffset = opts.fromOffset ?? (opts.fromBeginning ? '0' : undefined)
+    this.liveActive.set(consumerId, { consumer, partition: opts.partition, onMsg })
 
-    if (targetPartition !== undefined && targetOffset !== undefined) {
+    const tp = opts.partition
+    const to = opts.fromOffset ?? (opts.fromBeginning ? '0' : undefined)
+
+    if (tp !== undefined && to !== undefined) {
+      /* 先清除旧 handler 防止累积（复用 consumer 时每次 start 都会注册新的） */
+      try { (consumer as any).off?.(consumer.events.GROUP_JOIN) } catch { /**/ }
       consumer.on(consumer.events.GROUP_JOIN, async () => {
-        await consumer.seek({ topic: opts.topic, partition: targetPartition, offset: targetOffset })
+        console.log(`[live] GROUP_JOIN + seek partition=${tp} offset=${to}`)
+        await consumer.seek({ topic, partition: tp, offset: to })
       })
     }
 
-    await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
-        if (targetPartition !== undefined && partition !== targetPartition) return
+    consumer.run({
+      autoCommit: false,
+      eachMessage: async ({ topic: _t, partition, message }) => {
+        if (tp !== undefined && partition !== tp) return
         const headers: Record<string, string> = {}
-        if (message.headers) {
-          for (const [k, v] of Object.entries(message.headers)) {
+        if (message.headers)
+          for (const [k, v] of Object.entries(message.headers))
             if (v) headers[k] = typeof v === 'string' ? v : v.toString('utf-8')
-          }
-        }
         onMsg({
-          topic, partition,
-          offset: message.offset,
+          topic: _t, partition, offset: message.offset,
           key: message.key?.toString('utf-8'),
           value: message.value?.toString('utf-8') ?? '',
           headers: Object.keys(headers).length > 0 ? headers : undefined,
           timestamp: Number(message.timestamp)
         })
       }
+    }).catch((err) => {
+      console.error('[live] run error:', err.message)
     })
 
+    console.log(`[live] started consumerId=${consumerId.slice(0, 8)} topic=${topic} isNew=${isNew}`)
     return consumerId
   }
 
   async stop(consumerId: string): Promise<void> {
-    const entry = this.consumers.get(consumerId)
-    if (!entry) return
-    try { await entry.consumer.disconnect() } catch { /* 忽略 */ }
-    this.consumers.delete(consumerId)
+    const a = this.liveActive.get(consumerId)
+    if (!a) return
+    try { await a.consumer.stop() } catch { /**/ }
+    this.liveActive.delete(consumerId)
+    console.log(`[live] stopped consumerId=${consumerId.slice(0, 8)}`)
   }
 
   async stopAll(): Promise<void> {
-    const ids = [...this.consumers.keys()]
-    await Promise.all(ids.map((id) => this.stop(id)))
+    const activeEntries = Array.from(this.liveActive.entries())
+    for (const [, a] of activeEntries) {
+      try { await a.consumer.stop() } catch { /**/ }
+    }
+    this.liveActive.clear()
+    const poolEntries = Array.from(this.livePool.values())
+    for (const p of poolEntries) {
+      try { await p.consumer.disconnect() } catch { /**/ }
+    }
+    this.livePool.clear()
   }
 
   /* ================================================================
-   *  消息浏览：常驻消费者（从不 stop，只 seek）
-   *
-   *  核心思想：
-   *    consumer 创建后持续运行，eachMessage 一直挂在后台。
-   *    每次查询只做两件事：seek 到目标位置 → 设置请求上下文 → 等消息。
-   *    consumer 绝不 stop / disconnect / re-run。
-   *
-   *  耗时对比：
-   *    之前：每次创建 consumer → joinGroup(3~5s) → seek → fetch
-   *    现在：首次 joinGroup(3~5s) → 后续查询 < 1s
+   *  消息浏览：每次独立创建 consumer，用完即毁
+   *  GROUP_JOIN 的 ~3s 开销无法避免，但至少稳定、不出错
    * ================================================================ */
-  private fc: KConsumer | null = null        // fetch consumer
-  private fcKafka: Kafka | null = null
-  private fcTopic: string | null = null
-  private fcReady = false                     // GROUP_JOIN 已完成
 
-  /** 当前活跃的查询请求（同时只允许一个） */
-  private fReq: FetchRequest | null = null
+  async fetchMessages(kafka: Kafka, opts: FetchMessagesOptions): Promise<ConsumedMessage[]> {
+    const { topic, partition, offset, fromBeginning = false, limit = 50 } = opts
+    const t0 = Date.now()
 
-  /** 确保常驻消费者存在并就绪 */
-  private async ensureFc(kafka: Kafka, topic: string): Promise<KConsumer> {
-    /* 同实例同 topic 直接复用 */
-    if (this.fc && this.fcKafka === kafka && this.fcTopic === topic && this.fcReady) {
-      return this.fc
+    /* ---- 1. admin 水位 ---- */
+    const admin = kafka.admin()
+    await admin.connect()
+    let oo: Array<{ partition: number; high: string; low: string }>
+    try {
+      oo = (await admin.fetchTopicOffsets(topic)).map((o) => ({
+        partition: Number(o.partition), high: o.high, low: o.low
+      }))
+    } finally { await admin.disconnect().catch(() => {}) }
+
+    /* ---- 2. 计算 ---- */
+    const seeks: Array<{ partition: number; offset: string }> = []
+    let expected = 0
+    for (const o of oo) {
+      if (partition !== undefined && o.partition !== partition) continue
+      const hi = BigInt(o.high), lo = BigInt(o.low)
+      let to: bigint
+      if (offset !== undefined)      to = BigInt(offset)
+      else if (!fromBeginning)       to = hi - BigInt(limit)
+      else                           to = lo
+      if (to < lo) to = lo
+      const n = hi - to
+      if (n > BigInt(0)) { expected += Number(n); seeks.push({ partition: o.partition, offset: to.toString() }) }
     }
+    const max = Math.min(limit, expected)
+    console.log(`[fetch] A+B expected=${expected} max=${max} t+${Date.now()-t0}ms`)
+    if (max <= 0) return []
 
-    /* 清理旧消费者（连接/topic 变了） */
-    await this.destroyFc()
-
+    /* ---- 3. 创建消费者 ---- */
     const consumer = kafka.consumer({
-      groupId: `kfc-${randomUUID()}`,
-      sessionTimeout: 30000,
-      heartbeatInterval: 3000,
-      maxWaitTimeInMs: 100,   /* broker 最多等 100ms 就返回（默认 5000ms，导致 seek 延迟） */
+      groupId: `fc-${randomUUID()}`,
+      maxWaitTimeInMs: 50,
     })
-
-    /* 注册一次性的 GROUP_JOIN 处理器 */
-    const onJoin = () => {
-      this.fcReady = true
-    }
-    consumer.on(consumer.events.GROUP_JOIN, onJoin)
-
     await consumer.connect()
     await consumer.subscribe({ topic, fromBeginning: true })
+    console.log(`[fetch] C1 connect+subscribe t+${Date.now()-t0}ms`)
 
-    /* 启动消费 —— 永不 await，永不 stop */
+    const msgs: ConsumedMessage[] = []
+    let done = false
+    let joinDone = false
+
+    consumer.on(consumer.events.GROUP_JOIN, async () => {
+      if (joinDone) return
+      joinDone = true
+      for (const s of seeks)
+        try { await consumer.seek({ topic, partition: s.partition, offset: s.offset }) } catch { /**/ }
+      console.log(`[fetch] C2 GROUP_JOIN + seek 完成 t+${Date.now()-t0}ms`)
+    })
+
     consumer.run({
+      autoCommit: false,
       eachMessage: async ({ topic: t, partition: p, message }) => {
-        const req = this.fReq
-        if (!req) return
-
-        /* 分区过滤 */
-        if (req.targetPartition !== undefined && p !== req.targetPartition) return
-
-        /* 已达目标，忽略多余消息 */
-        if (req.messages.length >= req.maxToCollect) return
-
+        if (partition !== undefined && p !== partition) return
+        if (done) return
         const headers: Record<string, string> = {}
-        if (message.headers) {
-          for (const [k, v] of Object.entries(message.headers)) {
+        if (message.headers)
+          for (const [k, v] of Object.entries(message.headers))
             if (v) headers[k] = typeof v === 'string' ? v : v.toString('utf-8')
-          }
-        }
-        req.messages.push({
-          topic: t,
-          partition: p,
-          offset: message.offset,
+        msgs.push({
+          topic: t, partition: p, offset: message.offset,
           key: message.key?.toString('utf-8'),
           value: message.value?.toString('utf-8') ?? '',
           headers: Object.keys(headers).length > 0 ? headers : undefined,
           timestamp: Number(message.timestamp)
         })
+        if (msgs.length >= max) { console.log(`[fetch] D 收够 ${msgs.length} 条 t+${Date.now()-t0}ms`); done = true }
+      }
+    })
 
-        if (req.messages.length >= req.maxToCollect) {
-          req.resolve(req.messages)
+    /* 等消息收齐或超时，使用 Promise 代替轮询 */
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => resolve(), 15000)
+      const check = (): void => {
+        if (done) {
+          clearTimeout(timer)
+          resolve()
+        } else {
+          /* 使用 setImmediate 让出 CPU，比 setInterval 更高效 */
+          setTimeout(check, 50)
         }
       }
+      setTimeout(check, 50)
     })
 
-    this.fc = consumer
-    this.fcKafka = kafka
-    this.fcTopic = topic
+    try { await consumer.stop() } catch { /**/ }
+    try { await consumer.disconnect() } catch { /**/ }
 
-    /* 等待 GROUP_JOIN 完成 */
-    await new Promise<void>((resolve) => {
-      const t = setInterval(() => {
-        if (this.fcReady) { clearInterval(t); resolve() }
-      }, 200)
-      setTimeout(() => { clearInterval(t); resolve() }, 15000)
-    })
-
-    console.log('[fetch] 常驻消费者就绪')
-    return consumer
-  }
-
-  /** 销毁常驻消费者 */
-  private async destroyFc(): Promise<void> {
-    /* 取消进行中的查询 */
-    if (this.fReq) {
-      this.fReq.resolve(this.fReq.messages)
-      this.fReq = null
-    }
-    if (this.fc) {
-      try { await this.fc.stop() } catch { /* ok */ }
-      try { await this.fc.disconnect() } catch { /* ok */ }
-    }
-    this.fc = null
-    this.fcKafka = null
-    this.fcTopic = null
-    this.fcReady = false
-  }
-
-  /** 连接切换时清理 */
-  async resetPool(): Promise<void> {
-    await this.destroyFc()
-  }
-
-  /**
-   * 一次性拉取消息
-   *
-   * 流程：
-   *   1. admin 获取水位 → 算 expectedCount
-   *   2. 获取 / 创建常驻消费者（首次 3~5s，后续 0ms）
-   *   3. seek 到目标位置
-   *   4. 设置请求上下文 → consumer.eachMessage 自动收集
-   *   5. 收够 expectedCount → 返回
-   */
-  async fetchMessages(kafka: Kafka, opts: FetchMessagesOptions): Promise<ConsumedMessage[]> {
-    const { topic, partition, offset, fromBeginning = false, limit = 50 } = opts
-    const t0 = Date.now()
-
-    /* ---- 1. admin 获取水位 ---- */
-    const admin = kafka.admin()
-    await admin.connect()
-    let offs: Array<{ partition: number; high: string; low: string }>
-    try {
-      offs = (await admin.fetchTopicOffsets(topic)).map((o) => ({
-        partition: Number(o.partition),
-        high: o.high,
-        low: o.low
-      }))
-    } finally {
-      await admin.disconnect().catch(() => {})
-    }
-
-    /* ---- 2. 计算 seek 位置 + 预期数量 ---- */
-    const seekOps: Array<{ partition: number; offset: string }> = []
-    let expected = 0
-
-    for (const o of offs) {
-      if (partition !== undefined && o.partition !== partition) continue
-      const high = BigInt(o.high)
-      const low = BigInt(o.low)
-
-      let to: bigint
-      if (offset !== undefined) to = BigInt(offset)
-      else if (!fromBeginning) to = high - BigInt(limit)
-      else to = low
-      if (to < low) to = low
-
-      const avail = high - to
-      if (avail > 0n) {
-        const n = Number(avail)
-        expected += n
-        seekOps.push({ partition: o.partition, offset: to.toString() })
-      }
-    }
-
-    const maxToCollect = Math.min(limit, expected)
-    console.log(`[fetch] topic=${topic} expected=${expected} maxCollect=${maxToCollect} t+${Date.now() - t0}ms`)
-
-    if (maxToCollect <= 0) return []
-
-    /* ---- 3. 获取常驻消费者 + seek ---- */
-    const consumer = await this.ensureFc(kafka, topic)
-
-    /* pause → seek → resume：KafkaJS 要求在 running 状态下 seek 前必须先 pause */
-    consumer.pause([{ topic }])
-    /* 等待当前 fetch 周期结束（maxWaitTimeInMs=100 保证很快） */
-    await new Promise((r) => setTimeout(r, 150))
-    for (const s of seekOps) {
-      await consumer.seek({ topic, partition: s.partition, offset: s.offset })
-    }
-    consumer.resume([{ topic }])
-
-    /* ---- 4. 设置请求上下文，等待收集 ---- */
-    return new Promise<ConsumedMessage[]>((resolve) => {
-      // 取消上一个请求（如果有）
-      if (this.fReq) {
-        clearTimeout(this.fReq.timer ?? undefined)
-        this.fReq.resolve(this.fReq.messages)
-      }
-
-      const msgs: ConsumedMessage[] = []
-
-      const finish = () => {
-        clearTimeout(timer)
-        if (this.fReq?.messages === msgs) this.fReq = null
-        const elapsed = Date.now() - t0
-        console.log(`[fetch] ← ${msgs.length} 条, 耗时 ${elapsed}ms`)
-        resolve(msgs)
-      }
-
-      const timer = setTimeout(finish, 8000) // 8 秒兜底
-
-      this.fReq = {
-        targetPartition: partition,
-        messages: msgs,
-        maxToCollect,
-        resolve: finish,
-        timer
-      }
-    })
+    console.log(`[fetch] 完成 ← ${msgs.length}/${max} 条, 耗时 ${Date.now()-t0}ms`)
+    return msgs
   }
 }
 

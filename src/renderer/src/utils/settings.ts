@@ -1,43 +1,31 @@
-/** 设置项类型定义 */
+/** 应用设置类型（与主进程 connectionStore 保持一致） */
 export interface AppSettings {
-  /** 消息最大保留数量 */
   maxMessages: number
-  /** 自动刷新间隔（秒），0 表示禁用 */
   autoRefreshInterval: number
-  /** 主题模式 */
   theme: 'light' | 'dark' | 'system'
 }
 
-/** 默认设置 */
-const DEFAULTS: AppSettings = {
-  maxMessages: 500,
-  autoRefreshInterval: 0,
-  theme: 'light'
-}
-
-const STORAGE_KEY = 'kafka-client-settings'
-
-/** 读取设置 */
-export function loadSettings(): AppSettings {
+/** 读取设置 - 通过 IPC 从主进程 electron-store 获取 */
+export async function loadSettings(): Promise<AppSettings> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULTS }
-    const parsed = JSON.parse(raw)
-    return { ...DEFAULTS, ...parsed }
+    return await window.api.settings.get() as AppSettings
   } catch {
-    return { ...DEFAULTS }
+    return { maxMessages: 500, autoRefreshInterval: 0, theme: 'light' }
   }
 }
 
 /** 保存设置 */
-export function saveSettings(s: Partial<AppSettings>): AppSettings {
-  const cur = loadSettings()
-  const next = { ...cur, ...s }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-  return next
+export async function saveSettings(s: Partial<AppSettings>): Promise<AppSettings> {
+  return await window.api.settings.update(s) as AppSettings
 }
 
-/** 获取单个设置值 */
-export function getSetting<K extends keyof AppSettings>(key: K): AppSettings[K] {
-  return loadSettings()[key]
+/** 获取单个设置值（同步缓存版本，用于不支持 async 的场景） */
+let _cachedSettings: AppSettings | null = null
+
+export function setCachedSettings(s: AppSettings): void {
+  _cachedSettings = s
+}
+
+export function getCachedSettings(): AppSettings | null {
+  return _cachedSettings
 }

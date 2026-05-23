@@ -6,7 +6,7 @@
  */
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import type { LogLevel, LogSource, LogEntry } from '../../renderer/src/types/kafka'
+import type { LogLevel, LogSource, LogEntry } from '../../shared/types'
 
 const MAX_LOG_ENTRIES = 5000
 

@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerKafkaHandlers } from './ipc/kafkaHandlers'
 import { registerLogHandlers } from './logging/logHandlers'
 import { logService } from './logging/logService'
+import { connMgr } from './kafka/connectionManager'
 import Store from 'electron-store'
 
 /** 窗口状态存储 */
@@ -71,9 +72,16 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
-  /* 窗口关闭时保存状态 */
-  mainWindow.on('close', () => {
+  /* 窗口关闭时保存状态并异步清理资源 */
+  mainWindow.on('close', async (e) => {
     saveWindowState()
+    e.preventDefault()
+    mainWindow!.removeAllListeners('close')
+    try {
+      await stopAllConsumers()
+      await connMgr.closeAll()
+    } catch { /* 忽略 */ }
+    mainWindow!.close()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -121,11 +129,6 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
-
-/* 应用关闭前停止所有消费者 */
-app.on('before-quit', async () => {
-  await stopAllConsumers()
 })
 
 /* 所有窗口关闭时退出应用（Windows 平台） */
