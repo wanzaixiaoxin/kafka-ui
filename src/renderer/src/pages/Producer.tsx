@@ -6,6 +6,7 @@ import { SendOutlined, WarningOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import HeaderEditor from '../components/HeaderEditor'
 import { kafkaApiClient } from '../services/kafkaApiClient'
+import { useActiveConnection } from '../hooks/useActiveConnection'
 import type { KafkaMessage, SendResult, TopicInfo } from '../types/kafka'
 
 /** 消息生产页面 */
@@ -17,18 +18,14 @@ export default function Producer(): JSX.Element {
   const [result, setResult] = useState<SendResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [headers, setHeaders] = useState<Record<string, string>>({})
-  const [hasConn, setHasConn] = useState(true)
+  const { hasConn } = useActiveConnection()
   const [topicsLoading, setTopicsLoading] = useState(false)
 
-  /** 检查连接并加载 topic 列表 */
+  /** 加载 topic 列表 */
   const loadTopics = useCallback(async (): Promise<void> => {
+    if (!hasConn) return
     setTopicsLoading(true)
     try {
-      /* 检查是否有连接 */
-      const list = await kafkaApiClient.connections.list()
-      setHasConn(list.length > 0)
-      if (list.length === 0) return
-
       const res = await kafkaApiClient.topics.list()
       if (!Array.isArray(res)) {
         if (res && 'error' in res) {
@@ -42,7 +39,7 @@ export default function Producer(): JSX.Element {
     } finally {
       setTopicsLoading(false)
     }
-  }, [])
+  }, [hasConn])
 
   useEffect(() => {
     loadTopics()

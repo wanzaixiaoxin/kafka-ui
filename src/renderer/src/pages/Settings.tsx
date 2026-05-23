@@ -1,20 +1,14 @@
 import { useState, useEffect } from 'react'
 import { Card, Form, InputNumber, Select, Button, Divider, Typography, message, Space } from 'antd'
 import { SettingOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { loadSettings, saveSettings, setCachedSettings, type AppSettings } from '../utils/settings'
+import { loadSettings, saveSettings, setCachedSettings, DEFAULT_SETTINGS, type AppSettings } from '../utils/settings'
 
 const { Text, Paragraph } = Typography
-
-const DEFAULTS: AppSettings = {
-  maxMessages: 500,
-  autoRefreshInterval: 0,
-  theme: 'light'
-}
 
 /** 设置页面 - 应用配置和偏好设置 */
 export default function Settings(): JSX.Element {
   const [form] = Form.useForm()
-  const [settings, setSettings] = useState<AppSettings>(DEFAULTS)
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
 
   /** 挂载时从主进程加载设置 */
   useEffect(() => {
@@ -40,8 +34,8 @@ export default function Settings(): JSX.Element {
 
   /** 重置为默认设置 */
   const onReset = async (): Promise<void> => {
-    form.setFieldsValue(DEFAULTS)
-    const next = await saveSettings(DEFAULTS)
+    form.setFieldsValue(DEFAULT_SETTINGS)
+    const next = await saveSettings(DEFAULT_SETTINGS)
     setSettings(next)
     setCachedSettings(next)
     message.info('已恢复默认设置')

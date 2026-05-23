@@ -39,9 +39,12 @@ export default function Connections(): JSX.Element {
 
   /** 加载连接列表和激活状态 */
   const load = useCallback(async (): Promise<void> => {
-    const list = await kafkaApiClient.connections.list()
+    const [list, id] = await Promise.all([
+      kafkaApiClient.connections.list(),
+      kafkaApiClient.connections.activeId()
+    ])
     setConns(list)
-    /* 从列表中判断激活连接：通过 use 操作后刷新 */
+    setActiveId(id)
   }, [])
 
   useEffect(() => {

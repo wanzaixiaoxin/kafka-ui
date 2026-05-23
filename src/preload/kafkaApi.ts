@@ -34,7 +34,16 @@ export const connectionApi = {
 
   /** 获取当前激活连接 ID */
   activeId: (): Promise<string | null> =>
-    ipcRenderer.invoke('kafka:connection:activeId')
+    ipcRenderer.invoke('kafka:connection:activeId'),
+
+  /** 监听连接变更事件 */
+  onChanged: (callback: (id: string) => void): (() => void) => {
+    const handler = (_event: unknown, id: string): void => callback(id)
+    ipcRenderer.on('kafka:connection:changed', handler)
+    return () => {
+      ipcRenderer.removeListener('kafka:connection:changed', handler)
+    }
+  }
 }
 
 /** Preload 层 Kafka API - 桥接渲染进程与主进程 */

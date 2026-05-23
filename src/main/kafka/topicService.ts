@@ -13,7 +13,7 @@ export async function listTopics(admin: Admin): Promise<TopicInfo[]> {
       topic: t.name,
       partitions: t.partitions.length,
       replicas: maxRf,
-      isInternal: t.name.startsWith('__')
+      isInternal: (t as unknown as { internal?: boolean }).internal ?? t.name.startsWith('__')
     }
   })
 }

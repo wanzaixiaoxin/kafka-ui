@@ -1,16 +1,15 @@
-/** 应用设置类型（与主进程 connectionStore 保持一致） */
-export interface AppSettings {
-  maxMessages: number
-  autoRefreshInterval: number
-  theme: 'light' | 'dark' | 'system'
-}
+import type { AppSettings } from '../types/kafka'
+import { DEFAULT_SETTINGS } from '../types/kafka'
+
+export type { AppSettings } from '../types/kafka'
+export { DEFAULT_SETTINGS } from '../types/kafka'
 
 /** 读取设置 - 通过 IPC 从主进程 electron-store 获取 */
 export async function loadSettings(): Promise<AppSettings> {
   try {
     return await window.api.settings.get() as AppSettings
   } catch {
-    return { maxMessages: 500, autoRefreshInterval: 0, theme: 'light' }
+    return { ...DEFAULT_SETTINGS }
   }
 }
 

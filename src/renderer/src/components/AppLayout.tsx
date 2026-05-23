@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Button, Space, Breadcrumb, Badge } from 'antd'
 import {
@@ -16,7 +16,7 @@ import type { MenuProps } from 'antd'
 import ConnectionSelector from './ConnectionSelector'
 import DevToolsPanel from './DevToolsPanel'
 import { kafkaApiClient } from '../services/kafkaApiClient'
-import type { KafkaConnection } from '../types/kafka'
+import { useActiveConnectionDetail } from '../hooks/useActiveConnection'
 
 const { Header, Sider, Content } = Layout
 
@@ -45,7 +45,7 @@ export default function AppLayout(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
-  const [activeConn, setActiveConn] = useState<KafkaConnection | null>(null)
+  const { activeConn } = useActiveConnectionDetail()
   const [devToolsOpen, setDevToolsOpen] = useState(false)
   const [devToolsHeight, setDevToolsHeight] = useState(300)
   const [errorCount, setErrorCount] = useState(0)
@@ -91,24 +91,6 @@ export default function AppLayout(): JSX.Element {
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
   }
-
-  /** 加载当前激活连接 */
-  const loadActive = useCallback(async (): Promise<void> => {
-    try {
-      const activeId = await kafkaApiClient.connections.activeId()
-      if (activeId) {
-        const list = await kafkaApiClient.connections.list()
-        const found = list.find((c) => c.id === activeId)
-        if (found) setActiveConn(found)
-      }
-    } catch {
-      /* 忽略 */
-    }
-  }, [])
-
-  useEffect(() => {
-    loadActive()
-  }, [loadActive])
 
   /** 获取当前选中的菜单项 */
   const getSelectedKey = (): string => {

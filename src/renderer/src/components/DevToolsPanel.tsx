@@ -8,7 +8,7 @@
  * - 自动滚动到底部
  * - 清空日志
  */
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Input, Tag, Button, Space, Tooltip, Empty, Spin } from 'antd'
 import {
   ClearOutlined,
@@ -121,27 +121,29 @@ export default function DevToolsPanel({ visible }: Props): JSX.Element | null {
     navigator.clipboard.writeText(text)
   }
 
-  /** 过滤后的日志 */
-  const filteredLogs = logs.filter((l) => {
-    if (filterLevel !== 'all' && l.level !== filterLevel) return false
-    if (searchText) {
-      const s = searchText.toLowerCase()
-      return (
-        l.message.toLowerCase().includes(s) ||
-        (l.stack && l.stack.toLowerCase().includes(s)) ||
-        (l.data && l.data.toLowerCase().includes(s))
-      )
-    }
-    return true
-  })
+  /** 过滤后的日志（useMemo 避免每次渲染都重新遍历） */
+  const filteredLogs = useMemo(() => {
+    return logs.filter((l) => {
+      if (filterLevel !== 'all' && l.level !== filterLevel) return false
+      if (searchText) {
+        const s = searchText.toLowerCase()
+        return (
+          l.message.toLowerCase().includes(s) ||
+          (l.stack && l.stack.toLowerCase().includes(s)) ||
+          (l.data && l.data.toLowerCase().includes(s))
+        )
+      }
+      return true
+    })
+  }, [logs, filterLevel, searchText])
 
-  /** 统计各级别数量 */
-  const counts = {
+  /** 统计各级别数量（useMemo 缓存） */
+  const counts = useMemo(() => ({
     all: logs.length,
     error: logs.filter((l) => l.level === 'error' || l.level === 'fatal').length,
     warn: logs.filter((l) => l.level === 'warn').length,
     info: logs.filter((l) => l.level === 'info' || l.level === 'debug').length
-  }
+  }), [logs])
 
   /** 快捷跳转到第一个 error */
   const jumpToFirstError = (): void => {
@@ -305,7 +307,6 @@ export default function DevToolsPanel({ visible }: Props): JSX.Element | null {
             <div
               key={log.id}
               id={`log-${log.id}`}
-              className="log-highlight"
               style={{
                 padding: '3px 8px 3px 0',
                 borderBottom: '1px solid #2d2d2d',

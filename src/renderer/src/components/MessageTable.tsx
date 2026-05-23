@@ -1,4 +1,5 @@
 import { Table, Button } from 'antd'
+import { useMemo } from 'react'
 import type { ColumnsType } from 'antd/es/table'
 import type { ConsumedMessage } from '../types/kafka'
 
@@ -29,6 +30,20 @@ function truncate(s: string, max: number): string {
 
 /** 消息表格组件 - 显示 Kafka 消息列表 */
 export default function MessageTable({ messages, onMessageClick }: MessageTableProps): JSX.Element {
+  /** 缓存每条消息的 value 显示文本，避免每行渲染时重复 JSON.parse */
+  const valueCache = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const msg of messages) {
+      try {
+        const obj = JSON.parse(msg.value)
+        m.set(msg.offset, truncate(JSON.stringify(obj), 100))
+      } catch {
+        m.set(msg.offset, truncate(msg.value, 100))
+      }
+    }
+    return m
+  }, [messages])
+
   const cols: ColumnsType<ConsumedMessage> = [
     {
       title: '时间戳',
@@ -56,14 +71,8 @@ export default function MessageTable({ messages, onMessageClick }: MessageTableP
       title: 'Value',
       dataIndex: 'value',
       ellipsis: true,
-      render: (v: string) => {
-        /* 尝试解析为 JSON 并格式化 */
-        try {
-          const obj = JSON.parse(v)
-          return truncate(JSON.stringify(obj), 100)
-        } catch {
-          return truncate(v, 100)
-        }
+      render: (_v: string, record: ConsumedMessage) => {
+        return valueCache.get(record.offset) ?? truncate(_v, 100)
       }
     },
     {

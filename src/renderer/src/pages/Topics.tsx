@@ -4,19 +4,10 @@ import { Card, Table, Input, Checkbox, Button, Tag, Space, Typography, Alert, Em
 import { SearchOutlined, ReloadOutlined, UnorderedListOutlined, WarningOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { kafkaApiClient } from '../services/kafkaApiClient'
+import { useActiveConnection } from '../hooks/useActiveConnection'
 import type { TopicInfo } from '../types/kafka'
 
 const { Title } = Typography
-
-/** 检查是否有激活连接 */
-async function checkConnection(): Promise<boolean> {
-  try {
-    const list = await kafkaApiClient.connections.list()
-    return list.length > 0
-  } catch {
-    return false
-  }
-}
 
 /** Topic 列表页面 */
 export default function Topics(): JSX.Element {
@@ -26,17 +17,14 @@ export default function Topics(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showInternal, setShowInternal] = useState(false)
-  const [hasConn, setHasConn] = useState(true)
+  const { hasConn } = useActiveConnection()
 
   /** 加载 Topic 列表 */
   const load = useCallback(async (): Promise<void> => {
     setLoading(true)
     setError(null)
     try {
-      /* 先检查连接 */
-      const connected = await checkConnection()
-      setHasConn(connected)
-      if (!connected) {
+      if (!hasConn) {
         setTopics([])
         return
       }
@@ -56,7 +44,7 @@ export default function Topics(): JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [showInternal])
+  }, [showInternal, hasConn])
 
   /** 挂载时及 showInternal 变化时加载 */
   useEffect(() => {

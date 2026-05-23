@@ -34,7 +34,11 @@ export const kafkaApiClient = {
 
     /** 获取当前激活连接 ID */
     activeId: (): Promise<string | null> =>
-      window.api.connections.activeId()
+      window.api.connections.activeId(),
+
+    /** 监听连接变更事件 */
+    onChanged: (callback: (id: string) => void): (() => void) =>
+      window.api.connections.onChanged(callback)
   },
 
   /* ---- Topic 操作 ---- */

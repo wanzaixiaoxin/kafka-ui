@@ -8,6 +8,7 @@ import MessageTable from '../components/MessageTable'
 import JsonViewer from '../components/JsonViewer'
 import { kafkaApiClient } from '../services/kafkaApiClient'
 import { getCachedSettings } from '../utils/settings'
+import { useActiveConnection } from '../hooks/useActiveConnection'
 import type { ConsumedMessage, TopicInfo } from '../types/kafka'
 
 /** 消息消费页面 */
@@ -24,7 +25,7 @@ export default function Consumer(): JSX.Element {
   const [consumerId, setConsumerId] = useState<string | null>(null)
   const [selectedMsg, setSelectedMsg] = useState<ConsumedMessage | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [hasConn, setHasConn] = useState(true)
+  const { hasConn } = useActiveConnection()
   const [topicsLoading, setTopicsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const unsubRef = useRef<(() => void) | null>(null)
@@ -35,13 +36,9 @@ export default function Consumer(): JSX.Element {
 
   /** 加载 topic 列表 */
   const loadTopics = useCallback(async (): Promise<void> => {
+    if (!hasConn) return
     setTopicsLoading(true)
     try {
-      /* 检查连接 */
-      const list = await kafkaApiClient.connections.list()
-      setHasConn(list.length > 0)
-      if (list.length === 0) return
-
       const res = await kafkaApiClient.topics.list()
       if (!Array.isArray(res)) {
         if (res && 'error' in res) {
@@ -55,7 +52,7 @@ export default function Consumer(): JSX.Element {
     } finally {
       setTopicsLoading(false)
     }
-  }, [])
+  }, [hasConn])
 
   useEffect(() => {
     loadTopics()

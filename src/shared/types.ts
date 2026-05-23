@@ -163,3 +163,17 @@ export interface LogEntry {
   /** 文件/模块来源 */
   origin?: string
 }
+
+/** 应用设置 */
+export interface AppSettings {
+  maxMessages: number
+  autoRefreshInterval: number
+  theme: 'light' | 'dark' | 'system'
+}
+
+/** 应用设置默认值 */
+export const DEFAULT_SETTINGS: AppSettings = {
+  maxMessages: 500,
+  autoRefreshInterval: 0,
+  theme: 'light'
+}

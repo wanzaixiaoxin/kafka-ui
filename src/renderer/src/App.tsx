@@ -11,9 +11,7 @@ import Producer from './pages/Producer'
 import Consumer from './pages/Consumer'
 import ConsumerGroups from './pages/ConsumerGroups'
 import Settings from './pages/Settings'
-import { loadSettings, setCachedSettings, type AppSettings } from './utils/settings'
-
-const DEFAULTS: AppSettings = { maxMessages: 500, autoRefreshInterval: 0, theme: 'light' }
+import { loadSettings, setCachedSettings, DEFAULT_SETTINGS, type AppSettings } from './utils/settings'
 
 /** 根据设置获取 antd 主题算法 */
 function getThemeAlgorithm(settingsTheme: string) {
@@ -31,7 +29,7 @@ function getThemeAlgorithm(settingsTheme: string) {
 
 /** 应用根组件 - 配置路由、主题和错误边界 */
 export default function App(): JSX.Element {
-  const [settings, setSettings] = useState<AppSettings>(DEFAULTS)
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
 
   useEffect(() => {
     loadSettings().then((s) => {

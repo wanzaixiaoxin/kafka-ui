@@ -111,19 +111,21 @@ class ConnectionManager {
 
   /** 关闭所有客户端及其子资源 */
   async closeAll(): Promise<void> {
+    /* 先收集所有需要关闭的资源引用，再统一关闭 */
+    const adminsToClose = Array.from(this.admins.values())
+    const producersToClose = Array.from(this.producers.values())
+    this.admins.clear()
+    this.producers.clear()
+    this.clients.clear()
+
     const disconnects: Promise<void>[] = []
-    const adminEntries = Array.from(this.admins.entries())
-    for (const [id, admin] of adminEntries) {
-      this.admins.delete(id)
+    for (const admin of adminsToClose) {
       disconnects.push(admin.disconnect().catch(() => {}))
     }
-    const producerEntries = Array.from(this.producers.entries())
-    for (const [id, producer] of producerEntries) {
-      this.producers.delete(id)
+    for (const producer of producersToClose) {
       disconnects.push(producer.disconnect().catch(() => {}))
     }
     await Promise.all(disconnects)
-    this.clients.clear()
   }
 }
 

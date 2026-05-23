@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { kafkaApiClient } from '../services/kafkaApiClient'
+import { useActiveConnection } from '../hooks/useActiveConnection'
 import type { ConsumerGroupInfo, ConsumerGroupDetail } from '../types/kafka'
 
 /** 根据消费者组状态返回对应颜色 */
@@ -56,7 +57,7 @@ export default function ConsumerGroups(): JSX.Element {
   const [groups, setGroups] = useState<ConsumerGroupInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
-  const [hasConn, setHasConn] = useState(true)
+  const { hasConn } = useActiveConnection()
 
   /* 抽屉状态 */
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -65,16 +66,12 @@ export default function ConsumerGroups(): JSX.Element {
 
   /** 加载消费者组列表 */
   const fetchGroups = useCallback(async () => {
+    if (!hasConn) {
+      setGroups([])
+      return
+    }
     setLoading(true)
     try {
-      /* 检查连接 */
-      const list = await kafkaApiClient.connections.list()
-      setHasConn(list.length > 0)
-      if (list.length === 0) {
-        setGroups([])
-        return
-      }
-
       const res = await kafkaApiClient.groups.list()
       if (res && 'error' in res) {
         message.error(res.error)
@@ -88,7 +85,7 @@ export default function ConsumerGroups(): JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [hasConn])
 
   /** 打开消费者组详情 */
   const openDetail = async (groupId: string) => {

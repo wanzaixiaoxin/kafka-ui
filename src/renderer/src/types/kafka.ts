@@ -15,5 +15,8 @@ export type {
   ConnectionStatus,
   LogLevel,
   LogSource,
-  LogEntry
+  LogEntry,
+  AppSettings
 } from '../../../shared/types'
+
+export { DEFAULT_SETTINGS } from '../../../shared/types'

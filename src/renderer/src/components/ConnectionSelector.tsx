@@ -26,6 +26,9 @@ export default function ConnectionSelector(): JSX.Element {
 
   useEffect(() => {
     load()
+    /* 监听其他组件触发的连接变更 */
+    const unsub = kafkaApiClient.connections.onChanged(() => { load() })
+    return () => { unsub() }
   }, [load])
 
   /** 获取当前激活连接信息 */

@@ -131,7 +131,9 @@ app.whenReady().then(() => {
   })
 })
 
-/* 所有窗口关闭时退出应用（Windows 平台） */
+/* 所有窗口关闭时退出应用（macOS 上保持应用存活） */
 app.on('window-all-closed', () => {
-  app.quit()
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
 })
