@@ -46,8 +46,9 @@ export function registerKafkaHandlers(): void {
     store.setActive(id)
     /* 预创建 Kafka 实例 */
     connMgr.getActiveKafka(found)
-    /* 切换连接时停止所有消费者 */
+    /* 切换连接时停止所有消费者 + 清理查询池 */
     consumerSvc.stopAll().catch(() => { /* 忽略 */ })
+    consumerSvc.resetPool().catch(() => { /* 忽略 */ })
     return { success: true }
   })
 
@@ -118,6 +119,25 @@ export function registerKafkaHandlers(): void {
     try {
       const offsets = await getTopicOffsets(kafka, topic)
       return offsets
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { error: msg }
+    }
+  })
+
+  /** 拉取 Topic 消息（一次性批量拉取） */
+  ipcMain.handle('kafka:topic:messages', async (_e, opts) => {
+    const activeId = store.getActive()
+    if (!activeId) {
+      return { error: '没有激活的连接，请先选择一个连接' }
+    }
+    const kafka = connMgr.get(activeId)
+    if (!kafka) {
+      return { error: 'Kafka 客户端未就绪，请重新选择连接' }
+    }
+    try {
+      const messages = await consumerSvc.fetchMessages(kafka, opts)
+      return messages
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       return { error: msg }

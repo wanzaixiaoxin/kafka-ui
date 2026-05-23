@@ -2,6 +2,8 @@ import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerKafkaHandlers } from './ipc/kafkaHandlers'
+import { registerLogHandlers } from './logging/logHandlers'
+import { logService } from './logging/logService'
 import Store from 'electron-store'
 
 /** 窗口状态存储 */
@@ -103,10 +105,18 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  /* 注册日志处理器（最先注册，确保能捕获后续所有日志） */
+  registerLogHandlers()
+
   /* 注册 Kafka IPC 处理器 */
   registerKafkaHandlers()
 
   createWindow()
+
+  /* 将窗口引用传给日志服务，用于实时推送 */
+  if (mainWindow) {
+    logService.setWindow(mainWindow)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

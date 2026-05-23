@@ -123,5 +123,43 @@ export type ConsumerGroupDetail = {
   }>
 }
 
+/** 拉取消息选项（一次性批量拉取） */
+export interface FetchMessagesOptions {
+  topic: string
+  partition?: number
+  /** 起始 offset，不传则根据 fromBeginning 决定 */
+  offset?: string
+  /** 是否从最早开始，默认 false（从最新开始） */
+  fromBeginning?: boolean
+  /** 最大拉取条数 */
+  limit: number
+}
+
 /** 连接状态 */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+
+/** 日志级别 */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+
+/** 日志来源 */
+export type LogSource = 'main' | 'renderer' | 'preload'
+
+/** 单条日志记录 */
+export interface LogEntry {
+  /** 唯一 ID */
+  id: string
+  /** 日志级别 */
+  level: LogLevel
+  /** 时间戳 */
+  timestamp: number
+  /** 日志来源进程 */
+  source: LogSource
+  /** 日志消息 */
+  message: string
+  /** 附加数据（JSON 字符串） */
+  data?: string
+  /** 错误堆栈（仅 error/fatal 级别） */
+  stack?: string
+  /** 文件/模块来源 */
+  origin?: string
+}

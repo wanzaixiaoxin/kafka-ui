@@ -49,7 +49,11 @@ export const kafkaApi = {
 
     /** 获取 Topic Offset */
     offsets: (topic: string): Promise<unknown> =>
-      ipcRenderer.invoke('kafka:topic:offsets', topic)
+      ipcRenderer.invoke('kafka:topic:offsets', topic),
+
+    /** 拉取 Topic 消息（一次性批量拉取） */
+    messages: (opts: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('kafka:topic:messages', opts)
   },
 
   /* ---- 旧版 Topic 操作（保留兼容） ---- */
@@ -123,5 +127,26 @@ export const kafkaApi = {
     ipcRenderer.invoke('kafka:listGroups', connId),
 
   getGroupDetail: (connId: string, groupId: string): Promise<unknown | null> =>
-    ipcRenderer.invoke('kafka:getGroupDetail', connId, groupId)
+    ipcRenderer.invoke('kafka:getGroupDetail', connId, groupId),
+
+  /* ---- 日志 ---- */
+  log: {
+    getAll: (): Promise<unknown> =>
+      ipcRenderer.invoke('log:getAll'),
+
+    clear: (): Promise<void> =>
+      ipcRenderer.invoke('log:clear'),
+
+    onEntry: (callback: (entry: unknown) => void): (() => void) => {
+      const handler = (_event: unknown, entry: unknown): void => callback(entry)
+      ipcRenderer.on('log:entry', handler)
+      return () => {
+        ipcRenderer.removeListener('log:entry', handler)
+      }
+    },
+
+    send: (entry: unknown): void => {
+      ipcRenderer.send('log:renderer', entry)
+    }
+  }
 }

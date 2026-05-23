@@ -8,8 +8,10 @@ import type {
   SendResult,
   ConsumedMessage,
   ConsumerOptions,
+  FetchMessagesOptions,
   ConsumerGroupInfo,
-  ConsumerGroupDetail
+  ConsumerGroupDetail,
+  LogEntry
 } from '../types/kafka'
 
 /** 渲染进程 Kafka API 客户端 - 通过 preload 暴露的 api 调用主进程 */
@@ -55,7 +57,11 @@ export const kafkaApiClient = {
 
     /** 获取 Topic Offset */
     offsets: (topic: string): Promise<PartitionOffset[] | { error: string }> =>
-      window.api.topics.offsets(topic) as Promise<PartitionOffset[] | { error: string }>
+      window.api.topics.offsets(topic) as Promise<PartitionOffset[] | { error: string }>,
+
+    /** 拉取 Topic 消息 */
+    messages: (opts: FetchMessagesOptions): Promise<ConsumedMessage[] | { error: string }> =>
+      window.api.topics.messages(opts) as Promise<ConsumedMessage[] | { error: string }>
   },
 
   /* ---- 旧版 Topic 操作（保留兼容） ---- */
@@ -125,5 +131,24 @@ export const kafkaApiClient = {
 
   /** 获取消费者组详情 */
   getGroupDetail: (connId: string, groupId: string) =>
-    window.api.getGroupDetail(connId, groupId)
+    window.api.getGroupDetail(connId, groupId),
+
+  /* ---- 日志 ---- */
+  log: {
+    /** 获取所有缓冲日志 */
+    getAll: (): Promise<LogEntry[]> =>
+      window.api.log.getAll() as Promise<LogEntry[]>,
+
+    /** 清空日志 */
+    clear: (): Promise<void> =>
+      window.api.log.clear(),
+
+    /** 监听实时日志推送 */
+    onEntry: (callback: (entry: LogEntry) => void): (() => void) =>
+      window.api.log.onEntry(callback as (entry: unknown) => void) as unknown as () => void,
+
+    /** 渲染进程发送日志到主进程 */
+    send: (entry: LogEntry): void =>
+      window.api.log.send(entry)
+  }
 }
