@@ -19,6 +19,7 @@ dist/
 .DS_Store
 Thumbs.db
 Desktop.ini
+nul
 
 # 日志
 npm-debug.log*

@@ -164,6 +164,19 @@ export interface LogEntry {
   origin?: string
 }
 
+/** 创建 Topic 选项 */
+export interface CreateTopicOptions {
+  topic: string
+  numPartitions: number
+  replicationFactor: number
+}
+
+/** 创建 Topic 结果 */
+export interface CreateTopicResult {
+  success: boolean
+  error?: string
+}
+
 /** 应用设置 */
 export interface AppSettings {
   maxMessages: number

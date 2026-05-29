@@ -16,7 +16,9 @@ export type {
   LogLevel,
   LogSource,
   LogEntry,
-  AppSettings
+  AppSettings,
+  CreateTopicOptions,
+  CreateTopicResult
 } from '../../../shared/types'
 
 export { DEFAULT_SETTINGS } from '../../../shared/types'

@@ -1,0 +1,19 @@
+[Unit]
+Description=Apache Kafka (KRaft mode)
+Documentation=https://kafka.apache.org
+After=network.target
+
+[Service]
+Type=simple
+User=chenhao
+Group=chenhao
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+Environment=KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/opt/kafka/config/log4j.properties
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
+ExecStop=/opt/kafka/bin/kafka-server-stop.sh
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

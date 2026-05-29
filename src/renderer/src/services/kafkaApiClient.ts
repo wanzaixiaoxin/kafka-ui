@@ -11,7 +11,9 @@ import type {
   FetchMessagesOptions,
   ConsumerGroupInfo,
   ConsumerGroupDetail,
-  LogEntry
+  LogEntry,
+  CreateTopicOptions,
+  CreateTopicResult
 } from '../types/kafka'
 
 /** 渲染进程 Kafka API 客户端 - 通过 preload 暴露的 api 调用主进程 */
@@ -53,7 +55,10 @@ export const kafkaApiClient = {
       window.api.topics.offsets(topic),
 
     messages: (opts: FetchMessagesOptions): Promise<ConsumedMessage[] | { error: string }> =>
-      window.api.topics.messages(opts)
+      window.api.topics.messages(opts),
+
+    create: (opts: CreateTopicOptions): Promise<CreateTopicResult> =>
+      window.api.topics.create(opts)
   },
 
   /* ---- 生产者 ---- */

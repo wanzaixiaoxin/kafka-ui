@@ -12,7 +12,9 @@ import type {
   FetchMessagesOptions,
   ConsumerGroupInfo,
   ConsumerGroupDetail,
-  LogEntry
+  LogEntry,
+  CreateTopicOptions,
+  CreateTopicResult
 } from '../shared/types'
 
 /** 连接管理 API */
@@ -63,7 +65,10 @@ export const kafkaApi = {
       ipcRenderer.invoke('kafka:topic:offsets', topic),
 
     messages: (opts: FetchMessagesOptions): Promise<ConsumedMessage[] | { error: string }> =>
-      ipcRenderer.invoke('kafka:topic:messages', opts)
+      ipcRenderer.invoke('kafka:topic:messages', opts),
+
+    create: (opts: CreateTopicOptions): Promise<CreateTopicResult> =>
+      ipcRenderer.invoke('kafka:topic:create', opts)
   },
 
   /* ---- 生产者 ---- */

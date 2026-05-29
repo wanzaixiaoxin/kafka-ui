@@ -54,17 +54,21 @@ export default function Consumer(): JSX.Element {
     }
   }, [hasConn])
 
+  /* 加载 topic 列表（连接变化时重新加载） */
   useEffect(() => {
     loadTopics()
+  }, [loadTopics])
+
+  /* 仅在组件卸载时停止消费者，避免 loadTopics 引用变化导致意外 cleanup */
+  useEffect(() => {
     return () => {
-      /* 卸载时停止消费者并移除监听 */
       unsubRef.current?.()
       const cid = consumerIdRef.current
       if (cid) {
         kafkaApiClient.consumer.stop(cid).catch(() => {})
       }
     }
-  }, [loadTopics])
+  }, [])
 
   /** 当 topic 改变时加载分区数 */
   const onTopicChange = async (val: string): Promise<void> => {

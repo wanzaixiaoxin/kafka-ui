@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Input, Checkbox, Button, Tag, Space, Typography, Alert, Empty, Spin, message } from 'antd'
-import { SearchOutlined, ReloadOutlined, UnorderedListOutlined, WarningOutlined } from '@ant-design/icons'
+import { Card, Table, Input, Checkbox, Button, Tag, Space, Typography, Alert, Empty, Spin, message, Modal, Form, InputNumber } from 'antd'
+import { SearchOutlined, ReloadOutlined, UnorderedListOutlined, WarningOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { kafkaApiClient } from '../services/kafkaApiClient'
 import { useActiveConnection } from '../hooks/useActiveConnection'
-import type { TopicInfo } from '../types/kafka'
+import type { TopicInfo, CreateTopicOptions } from '../types/kafka'
 
 const { Title } = Typography
 
@@ -17,6 +17,9 @@ export default function Topics(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showInternal, setShowInternal] = useState(false)
+  const [createModalVisible, setCreateModalVisible] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [form] = Form.useForm()
   const { hasConn } = useActiveConnection()
 
   /** 加载 Topic 列表 */
@@ -50,6 +53,34 @@ export default function Topics(): JSX.Element {
   useEffect(() => {
     load()
   }, [load])
+
+  /** 创建 Topic */
+  const handleCreate = useCallback(async (): Promise<void> => {
+    try {
+      const values = await form.validateFields()
+      setCreateLoading(true)
+      const opts: CreateTopicOptions = {
+        topic: values.topic,
+        numPartitions: values.numPartitions,
+        replicationFactor: values.replicationFactor
+      }
+      const res = await kafkaApiClient.topics.create(opts)
+      if ('error' in res && res.error) {
+        message.error(res.error)
+      } else {
+        message.success('Topic 创建成功')
+        setCreateModalVisible(false)
+        form.resetFields()
+        load()
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        message.error(err.message)
+      }
+    } finally {
+      setCreateLoading(false)
+    }
+  }, [form, load])
 
   /** 按名称过滤 */
   const filtered = topics.filter((t) =>
@@ -169,6 +200,14 @@ export default function Topics(): JSX.Element {
           >
             刷新
           </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateModalVisible(true)}
+            disabled={!hasConn}
+          >
+            新建 Topic
+          </Button>
         </Space>
 
         {/* Topic 表格 */}
@@ -186,6 +225,46 @@ export default function Topics(): JSX.Element {
           )}
         </Spin>
       </Card>
+
+      {/* 创建 Topic 弹窗 */}
+      <Modal
+        title="新建 Topic"
+        open={createModalVisible}
+        onOk={handleCreate}
+        onCancel={() => { setCreateModalVisible(false); form.resetFields() }}
+        confirmLoading={createLoading}
+        okText="创建"
+        cancelText="取消"
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            name="topic"
+            label="Topic 名称"
+            rules={[
+              { required: true, message: '请输入 Topic 名称' },
+              { pattern: /^[a-zA-Z0-9._-]+$/, message: '只允许字母、数字、点、下划线和连字符' }
+            ]}
+          >
+            <Input placeholder="例如: my-topic" />
+          </Form.Item>
+          <Form.Item
+            name="numPartitions"
+            label="分区数"
+            initialValue={3}
+            rules={[{ required: true, message: '请输入分区数' }]}
+          >
+            <InputNumber min={1} max={1000} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="replicationFactor"
+            label="副本因子"
+            initialValue={1}
+            rules={[{ required: true, message: '请输入副本因子' }]}
+          >
+            <InputNumber min={1} max={10} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

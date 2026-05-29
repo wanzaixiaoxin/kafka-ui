@@ -1,12 +1,12 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import * as store from '../store/connectionStore'
 import { connMgr } from '../kafka/connectionManager'
-import { listTopics, describeTopic, getTopicOffsets } from '../kafka/topicService'
+import { listTopics, describeTopic, getTopicOffsets, createTopic } from '../kafka/topicService'
 import { producerSvc } from '../kafka/producerService'
 import { consumerSvc } from '../kafka/consumerService'
 import { listGroups, describeGroup } from '../kafka/groupService'
 import type { Admin, Kafka, Producer } from 'kafkajs'
-import type { KafkaConnection, ConnectionTestResult } from '../../shared/types'
+import type { KafkaConnection, ConnectionTestResult, CreateTopicOptions } from '../../shared/types'
 
 /** 获取当前激活连接 ID，无则返回错误 */
 function requireActiveId(): string | { error: string } {
@@ -135,6 +135,19 @@ export function registerKafkaHandlers(): void {
     try {
       const admin = await connMgr.getAdmin(activeId) as Admin
       return await consumerSvc.fetchMessages(kafka, opts, admin, activeId)
+    } catch (err: unknown) {
+      return toErrorResult(err)
+    }
+  })
+
+  ipcMain.handle('kafka:topic:create', async (_e, opts: CreateTopicOptions) => {
+    const activeId = requireActiveId()
+    if (typeof activeId === 'object') return activeId
+    try {
+      ensureKafkaClient(activeId)
+      const admin = await connMgr.getAdmin(activeId) as Admin
+      const success = await createTopic(admin, opts)
+      return { success }
     } catch (err: unknown) {
       return toErrorResult(err)
     }

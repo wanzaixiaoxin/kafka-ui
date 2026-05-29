@@ -1,5 +1,5 @@
 import type { Admin } from 'kafkajs'
-import type { TopicInfo, TopicDetail, PartitionOffset } from '../../shared/types'
+import type { TopicInfo, TopicDetail, PartitionOffset, CreateTopicOptions } from '../../shared/types'
 
 /**
  * 获取 Topic 列表
@@ -56,4 +56,19 @@ export async function getTopicOffsets(admin: Admin, topic: string): Promise<Part
     earliestOffset: earliestMap.get(pid) ?? '0',
     latestOffset: latestMap.get(pid) ?? '0'
   }))
+}
+
+/**
+ * 创建 Topic
+ */
+export async function createTopic(admin: Admin, opts: CreateTopicOptions): Promise<boolean> {
+  const result = await admin.createTopics({
+    topics: [{
+      topic: opts.topic,
+      numPartitions: opts.numPartitions,
+      replicationFactor: opts.replicationFactor
+    }],
+    waitForLeaders: true
+  })
+  return result
 }

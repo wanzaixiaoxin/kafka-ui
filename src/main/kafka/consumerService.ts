@@ -6,106 +6,133 @@ export type MsgCallback = (msg: ConsumedMessage) => void
 
 export class ConsumerService {
   /* ================================================================
-   *  实时消费者（start / stop）—— 固定 groupId，实例持久化
+   *  实时消费者 —— 常驻 consumer + 会话控制
    *
-   *  策略：
-   *   - groupId = `live-${topic}`，同一 topic 永远同一组
-   *   - stop 只停 fetch loop，不 disconnect；consumer 留在 livePool
-   *   - 再次 start 时复用已有 consumer，直接 run
-   *   - 首次 GROUP_JOIN ~3s，后续因 group 已存在于 broker，快很多
+   *  策略（与消息浏览相同架构）：
+   *   - 按 topic 维护常驻 consumer，consumer.run() 只启动一次
+   *   - start：设置会话（onMsg 回调 + 分区过滤），必要时 seek
+   *   - stop：清空会话，consumer 继续留在 group 中运行（消息丢弃）
+   *   - 再次 start：无需 GROUP_JOIN，直接更新回调 + seek（~瞬间）
+   *
+   *  消息流转：
+   *   eachMessage → 查 liveSessions（可能有多个同时活跃的 session）
+   *               → 按 partition 过滤 → 调用对应 onMsg
    * ================================================================ */
-  private livePool = new Map<string, {      // key = topic
+
+  /** 按 topic 缓存的常驻 consumer */
+  private liveConsumers = new Map<string, {
     consumer: KConsumer
     groupId: string
   }>()
-  private liveActive = new Map<string, {    // key = consumerId
-    consumer: KConsumer
+
+  /** 活跃的消费会话（一个 topic 可以同时有多个 session） */
+  private liveSessions = new Map<string, {    // key = consumerId
+    topic: string
     partition?: number
     onMsg: MsgCallback
   }>()
 
-  async start(kafka: Kafka, opts: ConsumerOptions, onMsg: MsgCallback): Promise<string> {
-    const { topic } = opts
+  /** 辅助方法：从 KafkaMessage 提取 ConsumedMessage */
+  private static toConsumedMessage(t: string, p: number, message: { offset: string; key?: Buffer | null; value?: Buffer | null; headers?: Record<string, Buffer | string | (Buffer | string)[] | undefined> | null; timestamp?: string | number }): ConsumedMessage {
+    const headers: Record<string, string> = {}
+    if (message.headers)
+      for (const [k, v] of Object.entries(message.headers))
+        if (v) headers[k] = Array.isArray(v) ? v.map(b => typeof b === 'string' ? b : b.toString('utf-8')).join(',') : typeof v === 'string' ? v : v.toString('utf-8')
+    return {
+      topic: t, partition: p, offset: message.offset,
+      key: message.key?.toString('utf-8'),
+      value: message.value?.toString('utf-8') ?? '',
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      timestamp: Number(message.timestamp)
+    }
+  }
+
+  /** 确保常驻 consumer 存在并运行 */
+  private async ensureLiveConsumer(kafka: Kafka, topic: string, fromBeginning: boolean): Promise<{
+    consumer: KConsumer
+    isFirst: boolean
+  }> {
+    const cached = this.liveConsumers.get(topic)
+    if (cached) {
+      return { consumer: cached.consumer, isFirst: false }
+    }
+
     const groupId = `live-${topic}`
-    const consumerId = randomUUID()
+    const consumer = kafka.consumer({ groupId })
 
-    let consumer: KConsumer
-    let isNew = false
-    const pooled = this.livePool.get(topic)
+    await consumer.connect()
+    await consumer.subscribe({ topic, fromBeginning: true })
+    this.liveConsumers.set(topic, { consumer, groupId })
 
-    if (pooled) {
-      /* 复用：先 stop 残留的 fetch loop */
-      try { await pooled.consumer.stop() } catch { /**/ }
-      consumer = pooled.consumer
-      console.log(`[live] 复用 consumer topic=${topic}`)
-    } else {
-      consumer = kafka.consumer({ groupId })
-      await consumer.connect()
-      await consumer.subscribe({ topic, fromBeginning: opts.fromBeginning ?? true })
-      this.livePool.set(topic, { consumer, groupId })
-      isNew = true
-      console.log(`[live] 新建 consumer topic=${topic}`)
-    }
-
-    this.liveActive.set(consumerId, { consumer, partition: opts.partition, onMsg })
-
-    const tp = opts.partition
-    const to = opts.fromOffset ?? (opts.fromBeginning ? '0' : undefined)
-
-    if (tp !== undefined && to !== undefined) {
-      /* 清除旧 handler 防止累积（复用 consumer 时每次 start 都会注册新的） */
-      const evt = consumer.events.GROUP_JOIN
-      ;(consumer as unknown as { removeAllListeners(event: string): void }).removeAllListeners(evt)
-      consumer.on(evt, async () => {
-        console.log(`[live] GROUP_JOIN + seek partition=${tp} offset=${to}`)
-        await consumer.seek({ topic, partition: tp, offset: to })
-      })
-    }
-
+    /* 启动常驻 fetch loop —— 只启动一次，永不 stop */
     consumer.run({
       autoCommit: false,
-      eachMessage: async ({ topic: _t, partition, message }) => {
-        if (tp !== undefined && partition !== tp) return
-        const headers: Record<string, string> = {}
-        if (message.headers)
-          for (const [k, v] of Object.entries(message.headers))
-            if (v) headers[k] = typeof v === 'string' ? v : v.toString('utf-8')
-        onMsg({
-          topic: _t, partition, offset: message.offset,
-          key: message.key?.toString('utf-8'),
-          value: message.value?.toString('utf-8') ?? '',
-          headers: Object.keys(headers).length > 0 ? headers : undefined,
-          timestamp: Number(message.timestamp)
+      eachMessage: async ({ topic: t, partition, message }) => {
+        const msg = ConsumerService.toConsumedMessage(t, partition, message)
+        /* 遍历所有活跃会话，投递消息 */
+        this.liveSessions.forEach((session) => {
+          if (session.topic !== t) return
+          if (session.partition !== undefined && partition !== session.partition) return
+          session.onMsg(msg)
         })
       }
-    }).catch((err) => {
-      console.error('[live] run error:', err.message)
+    }).catch(() => { /* disconnect 时 reject，忽略 */ })
+
+    console.log(`[live] 新建常驻 consumer topic=${topic}`)
+    return { consumer, isFirst: true }
+  }
+
+  async start(kafka: Kafka, opts: ConsumerOptions, onMsg: MsgCallback): Promise<string> {
+    const { topic } = opts
+    const consumerId = randomUUID()
+    const t0 = Date.now()
+
+    const { consumer, isFirst } = await this.ensureLiveConsumer(kafka, topic, opts.fromBeginning ?? true)
+
+    /* 注册会话 */
+    this.liveSessions.set(consumerId, {
+      topic,
+      partition: opts.partition,
+      onMsg
     })
 
-    console.log(`[live] started consumerId=${consumerId.slice(0, 8)} topic=${topic} isNew=${isNew}`)
+    /* 首次创建需要等 GROUP_JOIN 再 seek；复用模式直接 seek */
+    const seekTarget = opts.fromOffset ?? (opts.fromBeginning ? '0' : undefined)
+
+    if (opts.partition !== undefined && seekTarget !== undefined) {
+      if (isFirst) {
+        await new Promise<void>((resolve) => {
+          consumer.on(consumer.events.GROUP_JOIN, async () => {
+            try { await consumer.seek({ topic, partition: opts.partition!, offset: seekTarget }) } catch { /**/ }
+            resolve()
+          })
+        })
+      } else {
+        try { await consumer.seek({ topic, partition: opts.partition, offset: seekTarget }) } catch { /**/ }
+      }
+    }
+
+    console.log(`[live] started id=${consumerId.slice(0, 8)} topic=${topic} isNew=${isFirst} t+${Date.now() - t0}ms`)
     return consumerId
   }
 
   async stop(consumerId: string): Promise<void> {
-    const a = this.liveActive.get(consumerId)
-    if (!a) return
-    try { await a.consumer.stop() } catch { /**/ }
-    this.liveActive.delete(consumerId)
-    console.log(`[live] stopped consumerId=${consumerId.slice(0, 8)}`)
+    const existed = this.liveSessions.delete(consumerId)
+    if (existed) {
+      console.log(`[live] stopped id=${consumerId.slice(0, 8)} (session removed, consumer stays)`)
+    }
   }
 
   async stopAll(): Promise<void> {
-    const activeEntries = Array.from(this.liveActive.entries())
-    for (const [, a] of activeEntries) {
-      try { await a.consumer.stop() } catch { /**/ }
+    /* 清空所有会话 */
+    this.liveSessions.clear()
+    /* 断开所有常驻 live consumer */
+    const liveEntries = Array.from(this.liveConsumers.values())
+    for (const entry of liveEntries) {
+      try { await entry.consumer.disconnect() } catch { /**/ }
     }
-    this.liveActive.clear()
-    const poolEntries = Array.from(this.livePool.values())
-    for (const p of poolEntries) {
-      try { await p.consumer.disconnect() } catch { /**/ }
-    }
-    this.livePool.clear()
-    /* 同时清理 fetch 用 consumer */
+    this.liveConsumers.clear()
+    /* 清理 fetch consumer */
     const fetchEntries = Array.from(this.fetchState.values())
     for (const f of fetchEntries) {
       try { await f.consumer.disconnect() } catch { /**/ }

@@ -34,11 +34,12 @@ export default function MessageTable({ messages, onMessageClick }: MessageTableP
   const valueCache = useMemo(() => {
     const m = new Map<string, string>()
     for (const msg of messages) {
+      const cacheKey = `${msg.partition}-${msg.offset}`
       try {
         const obj = JSON.parse(msg.value)
-        m.set(msg.offset, truncate(JSON.stringify(obj), 100))
+        m.set(cacheKey, truncate(JSON.stringify(obj), 100))
       } catch {
-        m.set(msg.offset, truncate(msg.value, 100))
+        m.set(cacheKey, truncate(msg.value, 100))
       }
     }
     return m
@@ -72,7 +73,7 @@ export default function MessageTable({ messages, onMessageClick }: MessageTableP
       dataIndex: 'value',
       ellipsis: true,
       render: (_v: string, record: ConsumedMessage) => {
-        return valueCache.get(record.offset) ?? truncate(_v, 100)
+        return valueCache.get(`${record.partition}-${record.offset}`) ?? truncate(_v, 100)
       }
     },
     {
