@@ -46,7 +46,7 @@ impl ConnectionManager {
         }
     }
 
-    /// 根据连接配置创建 ClientConfig
+    /// 根据连接配置创建 ClientConfig（优化超时参数）
     fn build_config(conn: &ConnectionRecord) -> Result<ClientConfig, String> {
         let brokers = conn.brokers.join(",");
         let mut config = ClientConfig::new();
@@ -54,8 +54,21 @@ impl ConnectionManager {
             .set("bootstrap.servers", &brokers)
             .set("client.id", &conn.client_id)
             .set("log_level", "4") // LOG_WARNING
-            .set("socket.timeout.ms", "10000")
-            .set("api.version.request.timeout.ms", "5000");
+            // 优化: 缩短 socket 超时，提升响应速度
+            .set("socket.timeout.ms", "5000")
+            // 优化: 缩短 API 版本协商超时
+            .set("api.version.request.timeout.ms", "3000")
+            // 优化: 启用 TCP keepalive 防止连接断开
+            .set("socket.keepalive.enable", "true")
+            // 优化: 启用连接复用（rdkafka 内部连接池）
+            .set("enable.sparse.connections", "true")
+            // 优化: 元数据缓存策略，减少重复请求
+            .set("metadata.max.age.ms", "30000")    // 30 秒后强制刷新元数据
+            .set("topic.metadata.refresh.interval.ms", "30000") // 30 秒定期刷新
+            .set("topic.metadata.refresh.fast.interval.ms", "5000") // 快速刷新间隔 5 秒
+            .set("topic.metadata.refresh.sparse", "true") // 仅刷新请求的 topic
+            // 优化: 减少元数据请求超时
+            .set("metadata.request.timeout.ms", "3000");
 
         if conn.ssl || conn.sasl.is_some() {
             return Err(
@@ -75,7 +88,8 @@ impl ConnectionManager {
         conn: &ConnectionRecord,
     ) -> Result<ConnectionTestResult, String> {
         let config = Self::build_config(conn)?;
-        let timeout = Duration::from_secs(10);
+        // 优化: 测试连接使用更短的超时
+        let timeout = Duration::from_secs(5);
 
         let admin: AdminClient<DefaultClientContext> = config
             .create()
@@ -119,12 +133,25 @@ impl ConnectionManager {
             .create()
             .map_err(|e| format!("Failed to create admin client: {e}"))?;
 
-        // 验证连接（AdminClient 创建即连接）
         info!("Created new pooled AdminClient for connection {}", conn.name);
 
         let admin = Arc::new(admin);
         self.admins.insert(conn_id.to_string(), Arc::clone(&admin));
         Ok(admin)
+    }
+
+    /// 预热连接: 提前创建 Admin + Producer，避免首次操作延迟
+    pub fn warmup(&mut self, conn_id: &str, conn: &ConnectionRecord) -> Result<(), String> {
+        // 预创建 Admin（会触发元数据请求）
+        let admin = self.get_admin(conn_id, conn)?;
+        // 预热: 触发一次元数据刷新，让 rdkafka 内部缓存就绪
+        let _ = admin.inner().fetch_metadata(None, Duration::from_secs(3));
+        
+        // 预创建 Producer
+        let _ = self.get_producer(conn_id, conn)?;
+        
+        info!("Connection warmed up for {}", conn.name);
+        Ok(())
     }
 
     /// 获取或创建池化的 FutureProducer
@@ -136,6 +163,10 @@ impl ConnectionManager {
         let mut config = Self::build_config(conn)?;
         config.set("acks", "all");
         config.set("message.timeout.ms", "5000");
+        // 优化: 启用生产者批处理，提升吞吐
+        config.set("batch.num.messages", "100");
+        config.set("batch.size", "16384"); // 16KB
+        config.set("linger.ms", "5"); // 最多等 5ms 凑批
 
         let producer: FutureProducer = config
             .create()
@@ -175,7 +206,7 @@ impl Default for ConnectionManager {
     }
 }
 
-/// 为特定连接记录构建 ClientConfig（供 consumer 等模块复用）
+/// 为特定连接记录构建 ClientConfig（供 consumer 等模块复用，优化超时）
 pub fn build_config_for_record(conn: &ConnectionRecord) -> Result<ClientConfig, String> {
     let brokers = conn.brokers.join(",");
     let mut config = ClientConfig::new();
@@ -183,8 +214,15 @@ pub fn build_config_for_record(conn: &ConnectionRecord) -> Result<ClientConfig, 
         .set("bootstrap.servers", &brokers)
         .set("client.id", &conn.client_id)
         .set("log_level", "4")
-        .set("socket.timeout.ms", "10000")
-        .set("api.version.request.timeout.ms", "5000");
+        .set("socket.timeout.ms", "5000")
+        .set("api.version.request.timeout.ms", "3000")
+        .set("socket.keepalive.enable", "true")
+        // 启用稀疏连接：消费者只连接需要的 broker，避免连接全部 broker
+        .set("enable.sparse.connections", "true")
+        .set("metadata.max.age.ms", "30000")
+        .set("topic.metadata.refresh.interval.ms", "30000")
+        .set("topic.metadata.refresh.sparse", "true")
+        .set("metadata.request.timeout.ms", "3000");
 
     if conn.ssl || conn.sasl.is_some() {
         return Err(

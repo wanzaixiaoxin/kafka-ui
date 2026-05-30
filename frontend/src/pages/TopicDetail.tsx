@@ -71,6 +71,7 @@ export default function TopicDetail(): JSX.Element {
     if (!topicName) return
     setMsgLoading(true)
     setMsgError(null)
+    setMessages([]) // 清空旧消息
     try {
       const opts = {
         topic: topicName,
@@ -84,9 +85,14 @@ export default function TopicDetail(): JSX.Element {
         setMsgError(res.error)
         return
       }
-      setMessages(res as ConsumedMessage[])
+      const msgs = res as ConsumedMessage[]
+      setMessages(msgs)
+      if (msgs.length === 0) {
+        setMsgError('未查询到消息。可能原因：\n1. Topic 中无消息\n2. 选择的 Offset 范围内无消息\n3. 请尝试选择"最早消息"或调整 Offset')
+      }
     } catch (err: unknown) {
-      setMsgError(err instanceof Error ? err.message : '拉取消息失败')
+      const errorMsg = err instanceof Error ? err.message : '拉取消息失败'
+      setMsgError(errorMsg)
     } finally {
       setMsgLoading(false)
     }
@@ -286,8 +292,13 @@ export default function TopicDetail(): JSX.Element {
             loading={msgLoading}
             onClick={fetchMessages}
           >
-            查询
+            {msgLoading ? '查询中...' : '查询'}
           </Button>
+          {msgLoading && (
+            <span style={{ color: '#999', fontSize: 12 }}>
+              查询中，请稍候...
+            </span>
+          )}
         </Space>
 
         {/* 查询错误提示 */}

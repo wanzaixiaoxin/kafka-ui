@@ -17,6 +17,11 @@ pub async fn connection_save(
     state: State<'_, AppState>,
     conn: ConnectionRecord,
 ) -> Result<ConnectionRecord, String> {
+    // 连接配置变更时，清理旧的池化资源（下次使用时会用新配置重建）
+    {
+        let mut mgr = state.conn_mgr.write().await;
+        mgr.disconnect(&conn.id).await;
+    }
     let mut store = state.store.write().await;
     Ok(store.save_connection(conn))
 }
@@ -58,10 +63,12 @@ pub async fn connection_use(
 
     match conn {
         Some(c) => {
+            // 优化: 使用 warmup 预热连接（创建 admin + producer + 触发元数据缓存）
             {
                 let mut mgr = state.conn_mgr.write().await;
-                let _ = mgr.get_admin(&id, &c);
-                let _ = mgr.get_producer(&id, &c);
+                // 停止旧的 fetch consumers，避免资源泄漏
+                state.consumer_svc.write().await.stop_all().await;
+                let _ = mgr.warmup(&id, &c);
             }
 
             let mut store = state.store.write().await;

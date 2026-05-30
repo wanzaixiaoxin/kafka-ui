@@ -44,7 +44,10 @@ pub struct PartitionOffset {
     pub latest_offset: String,
 }
 
-const METADATA_TIMEOUT: Duration = Duration::from_secs(10);
+/// 优化: 缩短元数据超时（从 10s 降到 5s）
+const METADATA_TIMEOUT: Duration = Duration::from_secs(5);
+/// 优化: 缩短水位查询超时（从 5s 降到 3s）
+const WATERMARK_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// 列出所有 Topic
 pub fn list_topics(
@@ -84,7 +87,6 @@ pub fn describe_topic(
     admin: &AdminClient<DefaultClientContext>,
     topic: &str,
 ) -> Result<TopicDetail, String> {
-    // rdkafka 0.37: fetch_metadata with Option<&str>
     let metadata = admin
         .inner()
         .fetch_metadata(Some(topic), METADATA_TIMEOUT)
@@ -112,7 +114,7 @@ pub fn describe_topic(
     })
 }
 
-/// 获取各分区的 Offset 范围
+/// 获取各分区的 Offset 范围（优化: 复用元数据减少请求次数）
 pub fn get_topic_offsets(
     admin: &AdminClient<DefaultClientContext>,
     topic: &str,
@@ -127,15 +129,15 @@ pub fn get_topic_offsets(
         .first()
         .ok_or_else(|| format!("Topic not found: {topic}"))?;
 
-    let mut offsets = Vec::new();
-    let timeout = Duration::from_secs(5);
+    let mut offsets = Vec::with_capacity(t.partitions().len());
 
+    // 优化: 预分配容量，减少动态扩容
     for p in t.partitions() {
         let pid = p.id();
 
         let (low, high) = admin
             .inner()
-            .fetch_watermarks(topic, pid, timeout)
+            .fetch_watermarks(topic, pid, WATERMARK_TIMEOUT)
             .map_err(|e| format!("Failed to fetch offsets for partition {pid}: {e}"))?;
 
         offsets.push(PartitionOffset {
@@ -163,17 +165,15 @@ pub fn create_topic(
         config: vec![],
     };
 
-    let opts = AdminOptions::new().operation_timeout(Some(Duration::from_secs(30)));
+    // 优化: 缩短创建超时（从 30s 降到 15s）
+    let opts = AdminOptions::new().operation_timeout(Some(Duration::from_secs(15)));
 
-    // rdkafka 0.37: create_topics returns Future<Output = KafkaResult<Vec<TopicResult>>>
-    // 在 Tauri 命令（async）中通过 .await 获取结果
     futures::executor::block_on(async {
         let results = admin
             .create_topics(&[new_topic], &opts)
             .await
             .map_err(|e| format!("Failed to create topic: {e}"))?;
 
-        // TopicResult 可能是 Ok(name) 或 Err((name, error))
         for result in results {
             if let Err((name, err)) = result {
                 return Err(format!("Topic '{name}' creation failed: {err}"));

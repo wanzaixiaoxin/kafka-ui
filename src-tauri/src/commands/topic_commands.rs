@@ -75,8 +75,9 @@ pub async fn topic_messages(
         mgr.get_admin(&conn_id, &conn)?
     };
 
+    // fetch_messages 现在是同步方法（内部使用 BaseConsumer + assign，无需 async）
     let mut svc = state.consumer_svc.write().await;
-    let messages = svc.fetch_messages(&conn, &conn_id, &admin, &fetch_opts).await?;
+    let messages = svc.fetch_messages(&conn, &admin, &fetch_opts)?;
 
     Ok(serde_json::to_value(messages).map_err(|e| format!("Serialize: {e}"))?)
 }
