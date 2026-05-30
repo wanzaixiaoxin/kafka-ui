@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "tauri build && node scripts/copy-dist.mjs",
     "dev:renderer": "vite",
     "build:renderer": "vite build",
     "preview": "vite preview",
