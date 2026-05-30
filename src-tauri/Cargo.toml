@@ -1,0 +1,36 @@
+[package]
+name = "kafka-client"
+version = "1.0.0"
+description = "Kafka Desktop Client - Tauri + Rust + React"
+authors = ["Kafka Client Contributors"]
+edition = "2021"
+
+[lib]
+name = "kafka_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+strip = true       # 移除 debug 符号，减小二进制
+lto = true         # 链接时优化
+codegen-units = 1  # 更好的优化
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-store = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+# NOTE: SSL 和 SASL 功能需要预装 OpenSSL 开发库
+# 安装 OpenSSL 后将 features 改为: ["ssl", "sasl", "cmake-build"]
+rdkafka = { version = "0.37", features = ["cmake-build"] }
+futures = "0.3"
+anyhow = "1"
+thiserror = "2"

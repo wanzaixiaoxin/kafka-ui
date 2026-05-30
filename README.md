@@ -1,6 +1,6 @@
 # Kafka Client
 
-一个轻量级的 Kafka 桌面客户端，基于 Electron + React + TypeScript 构建，用于日常开发、测试和排查 Kafka 消息问题。
+轻量级 Kafka 桌面客户端，基于 Tauri + React + TypeScript 构建，用于日常开发、测试和排查 Kafka 消息问题。
 
 ## 功能
 
@@ -15,61 +15,73 @@
 
 | 技术 | 用途 |
 |------|------|
-| Electron | 桌面应用框架 |
+| Tauri | 桌面应用框架 |
+| Rust | 后端（Kafka 通信、存储） |
 | React | UI 构建 |
 | TypeScript | 类型安全 |
-| Vite (electron-vite) | 构建工具 |
-| KafkaJS | Kafka 通信 |
+| Vite | 前端构建工具 |
+| rdkafka | Kafka 通信（基于 librdkafka） |
 | Ant Design | UI 组件库 |
-| electron-store | 本地配置持久化 |
 
 ## 项目结构
 
 ```
-src/
-  main/                    # Electron 主进程
-    index.ts               # 入口，窗口管理
-    ipc/kafkaHandlers.ts   # IPC 处理器注册
-    kafka/                 # Kafka 服务层
-      connectionManager.ts # 连接管理
-      topicService.ts      # Topic 操作
-      producerService.ts   # 消息生产
-      consumerService.ts   # 消息消费
-      groupService.ts      # 消费者组查询
-    store/
-      connectionStore.ts   # 连接配置持久化
+frontend/                   # React 前端
+  index.html
+  src/
+    App.tsx                 # 根组件，路由配置
+    pages/                  # 页面组件
+    components/             # 公共组件
+    services/               # API 客户端 (Tauri invoke)
+    hooks/                  # React hooks
+    types/                  # 类型定义 (与 Rust 后端的 JSON 契约)
+    utils/                  # 工具函数
 
-  preload/                 # 预加载脚本
-    index.ts               # contextBridge 暴露 API
-    kafkaApi.ts            # IPC 桥接层
-
-  renderer/                # 渲染进程（React）
-    src/
-      App.tsx              # 根组件，路由配置
-      pages/               # 页面组件
-        Connections.tsx     # 连接管理
-        Topics.tsx          # Topic 列表
-        TopicDetail.tsx     # Topic 详情
-        Producer.tsx        # 消息发送
-        Consumer.tsx        # 消息消费
-        ConsumerGroups.tsx  # 消费者组
-        Settings.tsx        # 设置
-      components/          # 公共组件
-        AppLayout.tsx       # 应用布局
-        ConnectionSelector.tsx
-        MessageTable.tsx
-        JsonViewer.tsx
-        HeaderEditor.tsx
-        ErrorBoundary.tsx
-      services/            # API 客户端
-        kafkaApiClient.ts
-      types/               # 类型定义
-        kafka.ts
-      utils/               # 工具函数
-        settings.ts
+src-tauri/                  # Rust 后端 (Tauri)
+  src/
+    main.rs                 # 入口
+    lib.rs                  # Tauri Builder
+    commands/               # IPC 命令（21 个端点）
+    kafka/                  # Kafka 服务层
+      connection_manager.rs # 连接池管理
+      consumer_service.rs   # 消费服务
+      producer_service.rs   # 生产服务
+      topic_service.rs      # Topic 操作
+      group_service.rs      # 消费者组查询
+    store/                  # 持久化存储
+    logging/                # 日志服务
+    window/                 # 窗口状态管理
+  tauri.conf.json           # Tauri 配置
+  Cargo.toml                # Rust 依赖
 ```
 
+## 架构
+
+```
+frontend/ (React)           src-tauri/ (Rust)
+    │                           │
+    ├─ invoke('cmd', args) ───► #[tauri::command]
+    │                           │ rdkafka → Kafka
+    ├─ listen('event') ◄─────── emit('event', data)
+    │                           │ JSON 文件持久化
+    └─ emit('log:renderer') ──► LogService → 前端展示
+```
+
+- React 只负责界面展示和用户交互
+- Kafka 连接逻辑全部在 Rust 后端
+- 前端通过 `invoke()` 调用 Rust 命令，通过 `listen()` 接收事件
+- 渲染进程无法直接访问 Kafka
+
 ## 开发
+
+### 前置条件
+
+- Node.js >= 18
+- Rust 工具链（rustup, cargo）
+- CMake（编译 librdkafka）
+- （可选）OpenSSL 开发库（启用 SSL/SASL 需要）
+
+### 命令
 
 ```bash
 # 安装依赖
@@ -81,33 +93,21 @@ npm run dev
 # 构建
 npm run build
 
-# 打包 Windows 安装包
-npm run dist
+# 仅构建前端
+npm run build:renderer
+
+# 仅构建 Rust
+cd src-tauri && cargo build --release
 ```
 
-## 架构
+## 启用 SSL/SASL
 
-```
-React Renderer
-    │  IPC 调用
-    ▼
-Electron Preload (contextBridge)
-    │  安全暴露 API
-    ▼
-Electron Main Process
-    │  调用服务层
-    ▼
-Kafka Service Layer
-    │  KafkaJS
-    ▼
-Kafka Cluster
-```
-
-设计原则：
-- React 只负责界面展示和用户交互
-- Kafka 连接逻辑全部在 Electron 主进程
-- Preload 层只暴露有限、安全的 API
-- 渲染进程不直接访问 Node.js 或 KafkaJS
+1. 安装 OpenSSL 开发库
+2. 修改 `src-tauri/Cargo.toml`：
+   ```toml
+   rdkafka = { version = "0.37", features = ["ssl", "sasl", "cmake-build"] }
+   ```
+3. 重新构建
 
 ## License
 
