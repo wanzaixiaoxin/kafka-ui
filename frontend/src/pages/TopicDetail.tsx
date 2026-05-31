@@ -104,84 +104,87 @@ export default function TopicDetail(): JSX.Element {
     setDrawerOpen(true)
   }
 
-  /** 分区信息列定义 */
-  const partitionColumns: ColumnsType<PartitionInfo> = [
+  /** 分区 — 合并分区信息 + Offset 范围的统一视图 */
+  type MergedPartition = PartitionInfo & {
+    earliestOffset?: string
+    latestOffset?: string
+    messageCount: string
+  }
+
+  const mergedPartitions: MergedPartition[] = (detail?.partitions ?? []).map((p) => {
+    const o = offsets.find((off) => off.partition === p.partitionId)
+    return {
+      ...p,
+      earliestOffset: o?.earliestOffset,
+      latestOffset: o?.latestOffset,
+      messageCount: o ? (BigInt(o.latestOffset) - BigInt(o.earliestOffset)).toString() : '-'
+    }
+  })
+
+  const mergedColumns: ColumnsType<MergedPartition> = [
     {
-      title: '分区 ID',
+      title: '分区',
       dataIndex: 'partitionId',
       key: 'partitionId',
-      width: 90,
+      width: 70,
       sorter: (a, b) => a.partitionId - b.partitionId
     },
     {
       title: 'Leader',
       dataIndex: 'leader',
       key: 'leader',
-      width: 80
+      width: 70
     },
     {
-      title: '副本',
-      dataIndex: 'replicas',
-      key: 'replicas',
-      render: (replicas: number[]) => (
-        <Space size={4}>
-          {replicas.map((r) => (
-            <Tag key={r} color="blue">{r}</Tag>
-          ))}
-        </Space>
+      title: '最早 Offset',
+      dataIndex: 'earliestOffset',
+      key: 'earliestOffset',
+      width: 130,
+      render: (v: string | undefined) => v ?? '-'
+    },
+    {
+      title: '最新 Offset',
+      dataIndex: 'latestOffset',
+      key: 'latestOffset',
+      width: 130,
+      render: (v: string | undefined) => v ?? '-'
+    },
+    {
+      title: '消息数',
+      dataIndex: 'messageCount',
+      key: 'messageCount',
+      width: 90,
+      sorter: (a, b) => Number(BigInt(a.messageCount) - BigInt(b.messageCount)),
+      render: (count: string) => (
+        <Tag color="orange" style={{ margin: 0 }}>{count}</Tag>
       )
     },
     {
       title: 'ISR',
       dataIndex: 'isr',
       key: 'isr',
+      width: 120,
       render: (isr: number[]) => (
-        <Space size={4}>
+        <Space size={2}>
           {isr.map((r) => (
-            <Tag key={r} color="green">{r}</Tag>
+            <Tag key={r} color="green" style={{ fontSize: 11, lineHeight: '18px' }}>{r}</Tag>
+          ))}
+        </Space>
+      )
+    },
+    {
+      title: '副本',
+      dataIndex: 'replicas',
+      key: 'replicas',
+      render: (replicas: number[]) => (
+        <Space size={2}>
+          {replicas.map((r) => (
+            <Tag key={r} color="blue" style={{ fontSize: 11, lineHeight: '18px' }}>{r}</Tag>
           ))}
         </Space>
       )
     }
   ]
-
-  /** Offset 范围列定义 */
-  const offsetColumns: ColumnsType<PartitionOffset & { messageCount: string }> = [
-    {
-      title: '分区',
-      dataIndex: 'partition',
-      key: 'partition',
-      width: 80,
-      sorter: (a, b) => a.partition - b.partition
-    },
-    {
-      title: '最早 Offset',
-      dataIndex: 'earliestOffset',
-      key: 'earliestOffset',
-      width: 140
-    },
-    {
-      title: '最新 Offset',
-      dataIndex: 'latestOffset',
-      key: 'latestOffset',
-      width: 140
-    },
-    {
-      title: '消息数量',
-      dataIndex: 'messageCount',
-      key: 'messageCount',
-      width: 120,
-      render: (count: string) => (
-        <Tag color="orange">{count}</Tag>
-      )
-    }
-  ]
-
-  /** 计算 messageCount */
-  const offsetsWithCount = offsets.map((o) => ({
-    ...o,
-    messageCount: (BigInt(o.latestOffset) - BigInt(o.earliestOffset)).toString()
-  }))
 
   /** 分区选项 */
   const partitionOpts = [
@@ -217,23 +220,12 @@ export default function TopicDetail(): JSX.Element {
       )}
 
       <Spin spinning={loading}>
-        {/* 分区信息 */}
-        <Card title="分区信息" size="small" style={{ marginBottom: 16 }}>
+        {/* 分区信息 & Offset 范围 */}
+        <Card title="分区详情" size="small" style={{ marginBottom: 16 }}>
           <Table
             rowKey="partitionId"
-            dataSource={detail?.partitions ?? []}
-            columns={partitionColumns}
-            size="small"
-            pagination={false}
-          />
-        </Card>
-
-        {/* Offset 范围 */}
-        <Card title="Offset 范围" size="small" style={{ marginBottom: 16 }}>
-          <Table
-            rowKey="partition"
-            dataSource={offsetsWithCount}
-            columns={offsetColumns}
+            dataSource={mergedPartitions}
+            columns={mergedColumns}
             size="small"
             pagination={false}
           />

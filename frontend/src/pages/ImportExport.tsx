@@ -29,7 +29,7 @@ export default function ImportExport(): JSX.Element {
 
   return (
     <div>
-      <Title level={4} style={{ marginTop: 0 }}>消息导入导出</Title>
+      <Title level={4} style={{ marginTop: 0, marginBottom: 12 }}>消息导入导出</Title>
       <Tabs
         defaultActiveKey="export"
         items={[
@@ -74,7 +74,6 @@ function ExportPanel(): JSX.Element {
       savePath: values.savePath ?? ''
     }
 
-    // 监听进度
     const unsub = kafkaApiClient.importExport.onExportProgress((p) => {
       setProgress(p)
       if (p.status === 'completed') {
@@ -114,59 +113,71 @@ function ExportPanel(): JSX.Element {
 
   return (
     <Spin spinning={loading && !progress}>
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical" initialValues={{ maxCount: 1000, format: 'jsonl' }}>
-          <Form.Item label="Topic" name="topic" rules={[{ required: true, message: '请选择 Topic' }]}>
-            <AutoComplete options={topicOptions} placeholder="输入或选择 Topic" />
-          </Form.Item>
-          <Form.Item label="分区 (可选)" name="partition">
-            <InputNumber style={{ width: 150 }} min={0} placeholder="留空则全部分区" />
-          </Form.Item>
+      <Card size="small">
+        <Form form={form} layout="horizontal" labelCol={{ flex: '0 0 90px' }} initialValues={{ maxCount: 1000, format: 'jsonl' }}>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="起始 Offset" name="offsetStart">
-                <InputNumber style={{ width: '100%' }} min={0} placeholder="留空则从最早开始" />
+              <Form.Item label="Topic" name="topic" rules={[{ required: true, message: '请选择' }]}>
+                <AutoComplete options={topicOptions} placeholder="输入或选择 Topic" />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item label="结束 Offset" name="offsetEnd">
-                <InputNumber style={{ width: '100%' }} min={0} placeholder="留空则到最新" />
+            <Col span={6}>
+              <Form.Item label="分区" name="partition">
+                <InputNumber style={{ width: '100%' }} min={0} placeholder="全部" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="最大条数" name="maxCount">
+                <InputNumber style={{ width: '100%' }} min={1} max={100000} />
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item label="最大条数" name="maxCount">
-            <InputNumber style={{ width: 150 }} min={1} max={100000} />
-          </Form.Item>
-          <Form.Item label="格式" name="format">
-            <Radio.Group>
-              <Radio value="jsonl">JSON Lines (.jsonl)</Radio>
-              <Radio value="csv">CSV (.csv)</Radio>
-            </Radio.Group>
-          </Form.Item>
-          <Form.Item label="保存路径" name="savePath" rules={[{ required: true, message: '请选择保存路径' }]}>
+          <Row gutter={16}>
+            <Col span={6}>
+              <Form.Item label="起始 Offset" name="offsetStart">
+                <InputNumber style={{ width: '100%' }} min={0} placeholder="最早" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="结束 Offset" name="offsetEnd">
+                <InputNumber style={{ width: '100%' }} min={0} placeholder="最新" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="格式" name="format">
+                <Radio.Group>
+                  <Radio value="jsonl">JSONL</Radio>
+                  <Radio value="csv">CSV</Radio>
+                </Radio.Group>
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label=" " colon={false}>
+                <Button type="primary" icon={<ExportOutlined />} onClick={handleExport} loading={loading && !progress} block>
+                  {loading ? '导出中...' : '开始导出'}
+                </Button>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item label="保存到" name="savePath" rules={[{ required: true, message: '请选择保存路径' }]}>
             <Space.Compact style={{ width: '100%' }}>
-              <Input placeholder="点击右侧按钮选择路径" readOnly />
-              <Button icon={<FolderOpenOutlined />} onClick={handleSelectPath}>选择</Button>
+              <Input placeholder="点击右侧按钮选择保存路径" readOnly />
+              <Button icon={<FolderOpenOutlined />} onClick={handleSelectPath}>选择路径</Button>
             </Space.Compact>
           </Form.Item>
-          <Button type="primary" icon={<ExportOutlined />} onClick={handleExport} loading={loading && !progress}>
-            {loading ? '导出中...' : '开始导出'}
-          </Button>
         </Form>
-      </Card>
 
-      {progress && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Progress percent={Math.round(progress.percent)} status={progress.status === 'error' ? 'exception' : progress.status === 'completed' ? 'success' : 'active'} />
-          <div style={{ textAlign: 'center', color: '#666', marginTop: 8 }}>
-            {progress.current} / {progress.total} 条
+        {progress && (
+          <div style={{ marginTop: 8 }}>
+            <Progress percent={Math.round(progress.percent)} size="small"
+              status={progress.status === 'error' ? 'exception' : progress.status === 'completed' ? 'success' : 'active'} />
           </div>
-        </Card>
-      )}
+        )}
 
-      {result && (
-        <Alert message={result.message} type={result.success ? 'success' : 'error'} showIcon closable />
-      )}
+        {result && (
+          <Alert message={result.message} type={result.success ? 'success' : 'error'} showIcon closable style={{ marginTop: 8 }} />
+        )}
+      </Card>
     </Spin>
   )
 }
@@ -233,7 +244,6 @@ function ImportPanel(): JSX.Element {
     })
     if (path) {
       form.setFieldValue('filePath', path)
-      // 自动检测格式
       if (path.endsWith('.csv')) form.setFieldValue('format', 'csv')
       else form.setFieldValue('format', 'jsonl')
     }
@@ -243,52 +253,63 @@ function ImportPanel(): JSX.Element {
 
   return (
     <Spin spinning={loading && !progress}>
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical" initialValues={{ format: 'jsonl' }}>
-          <Form.Item label="目标 Topic" name="topic" rules={[{ required: true, message: '请选择 Topic' }]}>
-            <AutoComplete options={topicOptions} placeholder="输入或选择 Topic" />
-          </Form.Item>
-          <Form.Item label="文件路径" name="filePath" rules={[{ required: true, message: '请选择文件' }]}>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input placeholder="点击右侧按钮选择文件" readOnly />
-              <Button icon={<FolderOpenOutlined />} onClick={handleSelectFile}>选择</Button>
-            </Space.Compact>
-          </Form.Item>
-          <Form.Item label="格式" name="format">
-            <Radio.Group>
-              <Radio value="jsonl">JSON Lines (.jsonl)</Radio>
-              <Radio value="csv">CSV (.csv)</Radio>
-            </Radio.Group>
-          </Form.Item>
-          <Form.Item label="Key 字段 (CSV 时可指定用哪一列作为 key)" name="keyField">
-            <Input placeholder="例如: user_id" style={{ width: 200 }} />
-          </Form.Item>
-          <Button type="primary" icon={<ImportOutlined />} onClick={handleImport} loading={loading && !progress}>
-            {loading ? '导入中...' : '开始导入'}
-          </Button>
-        </Form>
-      </Card>
-
-      {progress && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Progress percent={Math.round(progress.percent)} status={progress.status === 'error' ? 'exception' : progress.status === 'completed' ? 'success' : 'active'} />
-          <Row gutter={16} style={{ marginTop: 8, textAlign: 'center' }}>
-            <Col span={8}>
-              <Statistic title="已处理" value={progress.current} suffix={`/ ${progress.total}`} />
+      <Card size="small">
+        <Form form={form} layout="horizontal" labelCol={{ flex: '0 0 80px' }} initialValues={{ format: 'jsonl' }}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="目标 Topic" name="topic" rules={[{ required: true, message: '请选择' }]}>
+                <AutoComplete options={topicOptions} placeholder="输入或选择 Topic" />
+              </Form.Item>
             </Col>
-            <Col span={8}>
-              <Statistic title="成功" value={progress.successCount ?? 0} valueStyle={{ color: '#3f8600' }} />
+            <Col span={6}>
+              <Form.Item label="格式" name="format">
+                <Radio.Group>
+                  <Radio value="jsonl">JSONL</Radio>
+                  <Radio value="csv">CSV</Radio>
+                </Radio.Group>
+              </Form.Item>
             </Col>
-            <Col span={8}>
-              <Statistic title="失败" value={progress.errorCount ?? 0} valueStyle={{ color: progress.errorCount ? '#cf1322' : undefined }} />
+            <Col span={6}>
+              <Form.Item label="Key 列" name="keyField">
+                <Input placeholder="CSV 用" />
+              </Form.Item>
             </Col>
           </Row>
-        </Card>
-      )}
+          <Form.Item label="源文件" name="filePath" rules={[{ required: true, message: '请选择文件' }]}>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input placeholder="点击右侧按钮选择文件" readOnly />
+              <Button icon={<FolderOpenOutlined />} onClick={handleSelectFile}>选择文件</Button>
+            </Space.Compact>
+          </Form.Item>
+          <Form.Item label=" " colon={false}>
+            <Button type="primary" icon={<ImportOutlined />} onClick={handleImport} loading={loading && !progress}>
+              {loading ? '导入中...' : '开始导入'}
+            </Button>
+          </Form.Item>
+        </Form>
 
-      {result && (
-        <Alert message={result.message} type={result.success ? 'success' : 'error'} showIcon closable />
-      )}
+        {progress && (
+          <div style={{ marginTop: 8 }}>
+            <Progress percent={Math.round(progress.percent)} size="small"
+              status={progress.status === 'error' ? 'exception' : progress.status === 'completed' ? 'success' : 'active'} />
+            <Row gutter={16} style={{ marginTop: 4, textAlign: 'center' }}>
+              <Col span={8}>
+                <Statistic title="已处理" value={progress.current} suffix={`/ ${progress.total}`} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="成功" value={progress.successCount ?? 0} valueStyle={{ color: '#3f8600' }} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="失败" value={progress.errorCount ?? 0} valueStyle={{ color: progress.errorCount ? '#cf1322' : undefined }} />
+              </Col>
+            </Row>
+          </div>
+        )}
+
+        {result && (
+          <Alert message={result.message} type={result.success ? 'success' : 'error'} showIcon closable style={{ marginTop: 8 }} />
+        )}
+      </Card>
     </Spin>
   )
 }
