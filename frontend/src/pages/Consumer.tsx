@@ -207,19 +207,18 @@ export default function Consumer(): JSX.Element {
 
       {/* 控制栏 */}
       <Space wrap style={{ marginBottom: 16 }}>
-        <Spin spinning={topicsLoading} size="small">
-          <Select
-            showSearch
-            style={{ width: 250 }}
-            placeholder="选择 Topic"
-            options={topicOptions}
-            value={topic || undefined}
-            onChange={onTopicChange}
-            filterOption={(input, option) =>
-              (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
-            }
-          />
-        </Spin>
+        <Select
+          showSearch
+          style={{ width: 250 }}
+          placeholder="选择 Topic"
+          options={topicOptions}
+          value={topic || undefined}
+          onChange={onTopicChange}
+          loading={topicsLoading}
+          filterOption={(input, option) =>
+            (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
+          }
+        />
         <Select
           style={{ width: 140 }}
           options={partitionOpts}

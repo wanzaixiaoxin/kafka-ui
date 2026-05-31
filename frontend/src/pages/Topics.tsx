@@ -138,12 +138,10 @@ export default function Topics(): JSX.Element {
   ]
 
   return (
-    <div>
-      <Title level={4} style={{ marginTop: 0, marginBottom: 16 }}>
-        <UnorderedListOutlined style={{ marginRight: 8 }} />
-        Topic 列表
-      </Title>
-
+    <Card
+      title={<><UnorderedListOutlined style={{ marginRight: 8 }} />Topic 列表</>}
+      size="small"
+    >
       {/* 无连接警告 */}
       {!hasConn && (
         <Alert
@@ -152,7 +150,7 @@ export default function Topics(): JSX.Element {
           type="warning"
           icon={<WarningOutlined />}
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12 }}
           action={
             <Button size="small" onClick={() => navigate('/connections')}>
               前往连接管理
@@ -167,7 +165,7 @@ export default function Topics(): JSX.Element {
           message={error}
           type="error"
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12 }}
           action={
             <Button size="small" onClick={load}>
               重试
@@ -175,8 +173,6 @@ export default function Topics(): JSX.Element {
           }
         />
       )}
-
-      <Card size="small">
         {/* 控制栏 */}
         <Space style={{ marginBottom: 12 }} wrap>
           <Input
@@ -265,6 +261,5 @@ export default function Topics(): JSX.Element {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
   )
 }
