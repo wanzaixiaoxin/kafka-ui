@@ -138,10 +138,11 @@ export default function Topics(): JSX.Element {
   ]
 
   return (
-    <Card
-      title={<><UnorderedListOutlined style={{ marginRight: 8 }} />Topic 列表</>}
-      size="small"
-    >
+    <>
+      <Card
+        title={<><UnorderedListOutlined style={{ marginRight: 8 }} />Topic 列表</>}
+        size="small"
+      >
       {/* 无连接警告 */}
       {!hasConn && (
         <Alert
@@ -261,5 +262,6 @@ export default function Topics(): JSX.Element {
           </Form.Item>
         </Form>
       </Modal>
+    </>
   )
 }
