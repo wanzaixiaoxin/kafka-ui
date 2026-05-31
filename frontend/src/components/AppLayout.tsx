@@ -6,6 +6,7 @@ import {
   UnorderedListOutlined,
   SendOutlined,
   InboxOutlined,
+  SwapOutlined,
   TeamOutlined,
   SettingOutlined,
   ReloadOutlined,
@@ -27,6 +28,7 @@ const menuItems: MenuProps['items'] = [
   { key: '/producer', icon: <SendOutlined />, label: '消息生产' },
   { key: '/consumer', icon: <InboxOutlined />, label: '消息消费' },
   { key: '/groups', icon: <TeamOutlined />, label: '消费者组' },
+  { key: '/import-export', icon: <SwapOutlined />, label: '导入导出' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' }
 ]
 
@@ -36,6 +38,7 @@ const breadcrumbMap: Record<string, string> = {
   '/topics': 'Topic 管理',
   '/producer': '消息生产',
   '/consumer': '消息消费',
+  '/import-export': '导入导出',
   '/groups': '消费者组',
   '/settings': '设置'
 }

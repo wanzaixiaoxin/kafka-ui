@@ -33,6 +33,7 @@ pub fn run() {
     tracing::info!("Kafka Client starting...");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
@@ -104,6 +105,9 @@ pub fn run() {
             commands::log_commands::log_get_all,
             commands::log_commands::log_clear,
             commands::log_commands::log_renderer,
+            // 导入导出
+            commands::import_export_commands::export_start,
+            commands::import_export_commands::import_start,
             // 设置
             commands::settings_commands::settings_get,
             commands::settings_commands::settings_update,

@@ -15,7 +15,10 @@ import type {
   ConsumerGroupDetail,
   LogEntry,
   CreateTopicOptions,
-  CreateTopicResult
+  CreateTopicResult,
+  ExportOptions,
+  ImportOptions,
+  ImportExportProgress
 } from '../types/kafka'
 
 /** 渲染进程 Kafka API 客户端 — 通过 Tauri invoke/event 调用 Rust 后端 */
@@ -143,6 +146,45 @@ export const kafkaApiClient = {
 
     send: (entry: LogEntry): void => {
       emit('log:renderer', entry)
+    }
+  },
+
+  /* ---- 导入导出 ---- */
+  importExport: {
+    exportStart: (opts: ExportOptions): Promise<void> =>
+      invoke('export_start', { opts }),
+
+    importStart: (opts: ImportOptions): Promise<void> =>
+      invoke('import_start', { opts }),
+
+    onExportProgress: (callback: (progress: ImportExportProgress) => void): (() => void) => {
+      let cancelled = false
+      let unlisten: (() => void) | null = null
+      listen<ImportExportProgress>('kafka:export:progress', (event) => {
+        if (!cancelled) callback(event.payload)
+      }).then((fn) => {
+        if (cancelled) fn()
+        else unlisten = fn
+      })
+      return () => {
+        cancelled = true
+        unlisten?.()
+      }
+    },
+
+    onImportProgress: (callback: (progress: ImportExportProgress) => void): (() => void) => {
+      let cancelled = false
+      let unlisten: (() => void) | null = null
+      listen<ImportExportProgress>('kafka:import:progress', (event) => {
+        if (!cancelled) callback(event.payload)
+      }).then((fn) => {
+        if (cancelled) fn()
+        else unlisten = fn
+      })
+      return () => {
+        cancelled = true
+        unlisten?.()
+      }
     }
   }
 }

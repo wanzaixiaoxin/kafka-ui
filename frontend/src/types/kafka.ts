@@ -156,3 +156,36 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoRefreshInterval: 0,
   theme: 'light'
 }
+
+// ============================================================
+//  导入导出
+// ============================================================
+
+export type ExportFormat = 'jsonl' | 'csv'
+
+export interface ExportOptions {
+  topic: string
+  partition?: number
+  offsetStart?: string
+  offsetEnd?: string
+  maxCount: number
+  format: ExportFormat
+  savePath: string
+}
+
+export interface ImportOptions {
+  topic: string
+  filePath: string
+  format: ExportFormat
+  keyField?: string
+}
+
+export interface ImportExportProgress {
+  status: 'running' | 'completed' | 'error'
+  current: number
+  total: number
+  percent: number
+  error?: string
+  errorCount?: number
+  successCount?: number
+}

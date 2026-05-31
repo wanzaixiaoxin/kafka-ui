@@ -10,6 +10,7 @@ import TopicDetail from './pages/TopicDetail'
 import Producer from './pages/Producer'
 import Consumer from './pages/Consumer'
 import ConsumerGroups from './pages/ConsumerGroups'
+import ImportExport from './pages/ImportExport'
 import Settings from './pages/Settings'
 import { loadSettings, setCachedSettings, DEFAULT_SETTINGS, type AppSettings } from './utils/settings'
 
@@ -62,6 +63,7 @@ export default function App(): JSX.Element {
               <Route path="producer" element={<Producer />} />
               <Route path="consumer" element={<Consumer />} />
               <Route path="groups" element={<ConsumerGroups />} />
+              <Route path="import-export" element={<ImportExport />} />
               <Route path="settings" element={<Settings />} />
             </Route>
           </Routes>
