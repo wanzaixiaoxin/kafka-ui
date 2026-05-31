@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Card, Form, Input, InputNumber, Button, Select, Alert, Descriptions, Spin, message, AutoComplete
+  Card, Form, Input, InputNumber, Button, Alert, Descriptions, Spin, message, AutoComplete,
+  Row, Col
 } from 'antd'
 import { SendOutlined, WarningOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -118,33 +119,59 @@ export default function Producer(): JSX.Element {
       )}
 
       <Spin spinning={topicsLoading}>
+        {error && (
+          <Alert type="error" message="发送失败" description={error} showIcon closable style={{ marginBottom: 8 }} />
+        )}
+        {result && (
+          <Alert
+            type="success" message="发送成功" showIcon closable style={{ marginBottom: 8 }}
+            description={
+              <Descriptions size="small" column={4}>
+                <Descriptions.Item label="Topic">{result.topic}</Descriptions.Item>
+                <Descriptions.Item label="分区">{result.partition}</Descriptions.Item>
+                <Descriptions.Item label="Offset">{result.offset}</Descriptions.Item>
+                <Descriptions.Item label="时间戳">
+                  {new Date(result.timestamp).toLocaleString('zh-CN')}
+                </Descriptions.Item>
+              </Descriptions>
+            }
+          />
+        )}
+
         <Form
           form={form}
-          layout="vertical"
+          layout="horizontal"
+          labelCol={{ flex: '0 0 60px' }}
           onFinish={send}
           initialValues={{ value: '' }}
         >
-          <Form.Item
-            label="Topic"
-            name="topic"
-            rules={[{ required: true, message: '请选择 Topic' }]}
-          >
-            <AutoComplete
-              options={topicOptions}
-              placeholder="输入或选择 Topic"
-              filterOption={(input, option) =>
-                (option?.value as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
-              }
-            />
-          </Form.Item>
-
-          <Form.Item label="Key" name="key">
-            <Input placeholder="可选" />
-          </Form.Item>
-
-          <Form.Item label="分区（可选）" name="partition">
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="不指定则自动选择" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Topic"
+                name="topic"
+                rules={[{ required: true, message: '请选择 Topic' }]}
+              >
+                <AutoComplete
+                  options={topicOptions}
+                  placeholder="输入或选择 Topic"
+                  filterOption={(input, option) =>
+                    (option?.value as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
+                  }
+                />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="Key" name="key">
+                <Input placeholder="可选" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="分区" name="partition">
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="自动" />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item label="Headers">
             <HeaderEditor value={headers} onChange={setHeaders} />
@@ -156,12 +183,12 @@ export default function Producer(): JSX.Element {
             rules={[{ required: true, message: '请输入消息内容' }]}
           >
             <Input.TextArea
-              style={{ fontFamily: 'monospace', minHeight: 200 }}
+              style={{ fontFamily: 'monospace', minHeight: 180 }}
               placeholder="输入消息内容"
             />
           </Form.Item>
 
-          <Form.Item>
+          <Form.Item label=" " colon={false}>
             <Button onClick={formatJson} style={{ marginRight: 8 }}>
               格式化 JSON
             </Button>
@@ -171,29 +198,6 @@ export default function Producer(): JSX.Element {
           </Form.Item>
         </Form>
       </Spin>
-
-      {error && (
-        <Alert type="error" message="发送失败" description={error} showIcon style={{ marginTop: 16 }} />
-      )}
-
-      {result && (
-        <Alert
-          type="success"
-          message="发送成功"
-          showIcon
-          style={{ marginTop: 16 }}
-          description={
-            <Descriptions size="small" column={2}>
-              <Descriptions.Item label="Topic">{result.topic}</Descriptions.Item>
-              <Descriptions.Item label="分区">{result.partition}</Descriptions.Item>
-              <Descriptions.Item label="Offset">{result.offset}</Descriptions.Item>
-              <Descriptions.Item label="时间戳">
-                {new Date(result.timestamp).toLocaleString('zh-CN')}
-              </Descriptions.Item>
-            </Descriptions>
-          }
-        />
-      )}
     </Card>
   )
 }
