@@ -153,9 +153,14 @@ function ExportPanel(): JSX.Element {
             </Col>
             <Col span={6}>
               <Form.Item label=" " colon={false}>
-                <Button type="primary" icon={<ExportOutlined />} onClick={handleExport} loading={loading && !progress} block>
-                  {loading ? '导出中...' : '开始导出'}
-                </Button>
+                <Space>
+                  <Button type="primary" icon={<ExportOutlined />} onClick={handleExport} loading={loading && !progress} block>
+                    {loading ? '导出中...' : '开始导出'}
+                  </Button>
+                  {loading && progress && (
+                    <Button danger onClick={() => kafkaApiClient.importExport.exportCancel()}>取消</Button>
+                  )}
+                </Space>
               </Form.Item>
             </Col>
           </Row>
@@ -282,9 +287,14 @@ function ImportPanel(): JSX.Element {
             </Space.Compact>
           </Form.Item>
           <Form.Item label=" " colon={false}>
-            <Button type="primary" icon={<ImportOutlined />} onClick={handleImport} loading={loading && !progress}>
-              {loading ? '导入中...' : '开始导入'}
-            </Button>
+            <Space>
+              <Button type="primary" icon={<ImportOutlined />} onClick={handleImport} loading={loading && !progress}>
+                {loading ? '导入中...' : '开始导入'}
+              </Button>
+              {loading && progress && (
+                <Button danger onClick={() => kafkaApiClient.importExport.importCancel()}>取消</Button>
+              )}
+            </Space>
           </Form.Item>
         </Form>
 

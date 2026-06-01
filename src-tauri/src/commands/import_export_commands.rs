@@ -53,6 +53,7 @@ pub async fn export_start(
         offset: export_opts.offset_start.clone(),
         from_beginning: Some(true), // 从最早开始
         limit: Some(export_opts.max_count),
+        offset_end: export_opts.offset_end.clone(),
     };
 
     let admin = {
@@ -60,11 +61,14 @@ pub async fn export_start(
         mgr.get_admin(&conn_id, &conn)?
     };
 
-    // 调用 ConsumerService 拉取消息（使用已验证的缓存 consumer）
-    let messages = {
-        let mut svc = state.consumer_svc.write().await;
-        svc.fetch_messages(&conn, &admin, &fetch_opts)?
-    };
+    // fetch_messages 是同步阻塞方法，放入 spawn_blocking 避免阻塞 tokio 线程
+    let svc = Arc::clone(&state.consumer_svc);
+    let conn_clone = conn.clone();
+    let admin_clone = Arc::clone(&admin);
+    let messages = tokio::task::spawn_blocking(move || {
+        let mut svc = svc.blocking_write();
+        svc.fetch_messages(&conn_clone, &admin_clone, &fetch_opts)
+    }).await.map_err(|e| format!("Join error: {e}"))??;
 
     // spawn_blocking 中写入文件（IO 操作）
     let handle = app_handle.clone();
@@ -134,11 +138,14 @@ pub async fn import_start(
     };
 
     let cancel = Arc::new(AtomicBool::new(false));
+    // 注册取消标志，cancel_import 命令可写入
+    state.cancel_flags.write().await.insert("import".into(), Arc::clone(&cancel));
 
     let handle = app_handle.clone();
+    let cancel2 = Arc::clone(&cancel);
     tokio::task::spawn_blocking(move || {
         if let Err(e) = import_export_service::import_messages(
-            &handle, &conn, producer.as_ref(), &import_opts, cancel,
+            &handle, &conn, producer.as_ref(), &import_opts, cancel2,
         ) {
             let _ = handle.emit("kafka:import:progress", ImportExportProgress {
                 status: "error".into(),
@@ -152,5 +159,29 @@ pub async fn import_start(
         }
     });
 
+    Ok(())
+}
+
+// ---- 取消命令 ----
+
+#[tauri::command]
+pub async fn export_cancel(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let flags = state.cancel_flags.read().await;
+    if let Some(flag) = flags.get("export") {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn import_cancel(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let flags = state.cancel_flags.read().await;
+    if let Some(flag) = flags.get("import") {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     Ok(())
 }

@@ -163,14 +163,10 @@ pub fn import_messages(
 
     info!("[import] 开始导入 topic='{}', format={}, path={}", topic, format, file_path);
 
-    // 统计总行数
-    let file = File::open(file_path)
-        .map_err(|e| format!("无法打开文件 {}: {e}", file_path))?;
-    let total: u64 = BufReader::new(&file).lines().count() as u64;
-
-    let file = File::open(file_path)
-        .map_err(|e| format!("无法重新打开文件 {}: {e}", file_path))?;
-    let reader = BufReader::new(file);
+    // 文件大小作为进度总量估算（避免预扫描二次读文件）
+    let total_bytes = std::fs::metadata(file_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
 
     let mut current: u64 = 0;
     let mut success: u64 = 0;
@@ -223,10 +219,13 @@ pub fn import_messages(
                 }
             }
 
-            emit_import_progress(app_handle, &mut last_progress, current, total, success, errors, None);
+            emit_import_progress(app_handle, &mut last_progress, current, total_bytes, success, errors, None);
         }
     } else {
         // JSONL 模式
+        let file = File::open(file_path)
+            .map_err(|e| format!("无法打开文件 {}: {e}", file_path))?;
+        let reader = BufReader::new(file);
         for line_result in reader.lines() {
             if cancel.load(Ordering::Relaxed) {
                 info!("[import] 用户取消导入");
@@ -259,7 +258,7 @@ pub fn import_messages(
                 }
             }
 
-            emit_import_progress(app_handle, &mut last_progress, current, total, success, errors, None);
+            emit_import_progress(app_handle, &mut last_progress, current, total_bytes, success, errors, None);
         }
     }
 
@@ -270,8 +269,8 @@ pub fn import_messages(
     let _ = app_handle.emit("kafka:import:progress", ImportExportProgress {
         status: "completed".into(),
         current,
-        total,
-        percent: if total > 0 { current as f64 / total as f64 * 100.0 } else { 100.0 },
+        total: current,
+        percent: 100.0,
         error: None,
         error_count: Some(errors),
         success_count: Some(success),

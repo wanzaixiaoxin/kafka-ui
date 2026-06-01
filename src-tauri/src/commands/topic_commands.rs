@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::kafka::topic_service;
@@ -75,9 +77,14 @@ pub async fn topic_messages(
         mgr.get_admin(&conn_id, &conn)?
     };
 
-    // fetch_messages 现在是同步方法（内部使用 BaseConsumer + assign，无需 async）
-    let mut svc = state.consumer_svc.write().await;
-    let messages = svc.fetch_messages(&conn, &admin, &fetch_opts)?;
+    // fetch_messages 是同步阻塞方法，放入 spawn_blocking 避免阻塞 tokio 线程
+    let svc = Arc::clone(&state.consumer_svc);
+    let conn_clone = conn.clone();
+    let admin_clone = Arc::clone(&admin);
+    let messages = tokio::task::spawn_blocking(move || {
+        let mut svc = svc.blocking_write();
+        svc.fetch_messages(&conn_clone, &admin_clone, &fetch_opts)
+    }).await.map_err(|e| format!("Join error: {e}"))??;
 
     Ok(serde_json::to_value(messages).map_err(|e| format!("Serialize: {e}"))?)
 }

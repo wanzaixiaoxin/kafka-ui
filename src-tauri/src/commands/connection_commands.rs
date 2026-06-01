@@ -21,6 +21,7 @@ pub async fn connection_save(
     {
         let mut mgr = state.conn_mgr.write().await;
         mgr.disconnect(&conn.id).await;
+        state.consumer_svc.write().await.clear_fetch_cache();
     }
     let mut store = state.store.write().await;
     Ok(store.save_connection(conn))

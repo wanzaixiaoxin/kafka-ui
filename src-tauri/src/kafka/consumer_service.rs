@@ -34,6 +34,8 @@ pub struct FetchMessagesOptions {
     #[serde(rename = "fromBeginning")]
     pub from_beginning: Option<bool>,
     pub limit: Option<u32>,
+    #[serde(rename = "offsetEnd")]
+    pub offset_end: Option<String>,
 }
 
 /// 已消费的消息
@@ -210,7 +212,7 @@ impl ConsumerService {
         // 步骤1.5: 检测 Broker advertised.listeners 地址不匹配
         // 记录地址差异用于诊断。若 broker 广播 localhost 但用户用其他地址连接，
         // 可能是 Docker/WSL 端口映射场景，后续会自动回退到 localhost 重试。
-        let mut address_mismatch_warning: Option<String> = None;
+        let mut address_mismatch_warnings: Vec<String> = Vec::new();
         let mut localhost_fallback_bootstrap: Option<String> = None;
         {
             let bootstrap_hosts: Vec<&str> = conn.brokers.iter()
@@ -235,19 +237,21 @@ impl ConsumerService {
                     // Docker/WSL 场景：通过端口映射暴露，用 localhost 可以直接访问
                     let advertised = format!("{}:{}", broker_host, broker_port);
                     let suggested_host = bootstrap_hosts.first().unwrap_or(&"<您的IP>");
-                    address_mismatch_warning = Some(format!(
+                    let warning = format!(
                         "bootstrap={}  advertised={}  (建议: advertised.listeners=PLAINTEXT://{}:{})",
                         conn.brokers.join(", "), advertised, suggested_host, broker_port
-                    ));
+                    );
+                    warn!("[fetch] Broker 地址可能不匹配: {}，将尝试 localhost 回退", warning);
+                    address_mismatch_warnings.push(warning);
                     localhost_fallback_bootstrap = Some(format!("localhost:{}", broker_port));
-                    warn!("[fetch] Broker 地址可能不匹配: {}，将尝试 localhost 回退", address_mismatch_warning.as_ref().unwrap());
                 } else if !bootstrap_is_local && !broker_is_local && !broker_in_bootstrap {
                     let advertised = format!("{}:{}", broker_host, broker_port);
-                    address_mismatch_warning = Some(format!(
+                    let warning = format!(
                         "bootstrap={}  advertised={}  (可能不在同一网络)",
                         conn.brokers.join(", "), advertised
-                    ));
-                    warn!("[fetch] Broker 地址可能不匹配: {}", address_mismatch_warning.as_ref().unwrap());
+                    );
+                    warn!("[fetch] Broker 地址可能不匹配: {}", warning);
+                    address_mismatch_warnings.push(warning);
                 }
             }
         }
@@ -281,10 +285,16 @@ impl ConsumerService {
             } else {
                 low
             };
-            let count = high - start;
+            // 如果指定了 offset_end，限制读取上限
+            let effective_high = if let Some(ref end_str) = opts.offset_end {
+                end_str.parse::<i64>().unwrap_or(high).min(high).max(start)
+            } else {
+                high
+            };
+            let count = effective_high - start;
             if count > 0 {
                 total_expected += count;
-                assignments.push((pid, start, high));
+                assignments.push((pid, start, effective_high));
             }
         }
 
@@ -438,6 +448,8 @@ impl ConsumerService {
                     Some(Err(e)) => {
                         warn!("[fetch] 步骤5: poll 返回错误: {} (已收集 {} 条, transport_errors={})", e, collected.len(), transport_errors);
                         if !collected.is_empty() {
+                            // 已有部分数据时发生传输错误：记录警告，返回已有数据（不缓存 consumer）
+                            last_error = Some(format!("传输错误（已收集 {} 条，可能不完整）: {e}", collected.len()));
                             break;
                         }
                         last_error = Some(format!("Kafka 返回错误: {e}"));
@@ -459,10 +471,15 @@ impl ConsumerService {
                 }
             }
 
-            // 如果收集到消息，跳出重试循环并缓存 consumer
+            // 如果收集到消息，跳出重试循环
             if !collected.is_empty() {
-                last_error = None;
-                consumer_to_cache = Some(consumer);
+                if last_error.is_none() {
+                    // 完整成功 → 缓存 consumer 供下次复用
+                    consumer_to_cache = Some(consumer);
+                } else {
+                    // 部分数据（传输错误中断）→ 不缓存，日志已记录
+                    warn!("[fetch] 步骤5: 返回部分数据（可能不完整）");
+                }
                 break;
             }
 
@@ -501,8 +518,8 @@ impl ConsumerService {
             reason.push_str("\n\n原因：AdminClient 通过您配置的连接地址访问正常，");
             reason.push_str("但消费者必须直连分区 Leader，而 Broker 广播的 advertised.listeners 地址不可达。");
 
-            if let Some(ref warning) = address_mismatch_warning {
-                reason.push_str(&format!("\n\n诊断信息: {}", warning));
+            if !address_mismatch_warnings.is_empty() {
+                reason.push_str(&format!("\n\n诊断信息:\n- {}", address_mismatch_warnings.join("\n- ")));
             }
 
             if used_fallback {
@@ -526,6 +543,15 @@ impl ConsumerService {
         }
 
         Ok(collected)
+    }
+
+    /// 清除 fetch consumer 缓存（连接配置变更时调用，不影响 live consumer）
+    pub fn clear_fetch_cache(&mut self) {
+        let count = self.fetch_consumers.len();
+        self.fetch_consumers.clear();
+        if count > 0 {
+            info!("Cleared {} cached fetch consumers", count);
+        }
     }
 
     /// 停止所有会话和消费者

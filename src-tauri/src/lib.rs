@@ -4,6 +4,8 @@ mod logging;
 mod store;
 mod window;
 
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::RwLock;
@@ -20,6 +22,8 @@ pub struct AppState {
     pub log_service: Arc<RwLock<LogService>>,
     pub conn_mgr: Arc<RwLock<ConnectionManager>>,
     pub consumer_svc: Arc<RwLock<ConsumerService>>,
+    /// 导入导出取消标志（key: "import" / "export"）
+    pub cancel_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 /// 启动 Tauri 应用
@@ -41,6 +45,7 @@ pub fn run() {
             log_service: Arc::new(RwLock::new(LogService::default())),
             conn_mgr: Arc::new(RwLock::new(ConnectionManager::default())),
             consumer_svc: Arc::new(RwLock::new(ConsumerService::default())),
+            cancel_flags: Arc::new(RwLock::new(HashMap::new())),
         })
         .setup(|app| {
             // 初始化数据目录并加载持久化数据
@@ -108,6 +113,8 @@ pub fn run() {
             // 导入导出
             commands::import_export_commands::export_start,
             commands::import_export_commands::import_start,
+            commands::import_export_commands::export_cancel,
+            commands::import_export_commands::import_cancel,
             // 设置
             commands::settings_commands::settings_get,
             commands::settings_commands::settings_update,

@@ -157,6 +157,12 @@ export const kafkaApiClient = {
     importStart: (opts: ImportOptions): Promise<void> =>
       invoke('import_start', { opts }),
 
+    exportCancel: (): Promise<void> =>
+      invoke('export_cancel'),
+
+    importCancel: (): Promise<void> =>
+      invoke('import_cancel'),
+
     onExportProgress: (callback: (progress: ImportExportProgress) => void): (() => void) => {
       let cancelled = false
       let unlisten: (() => void) | null = null
