@@ -41,13 +41,15 @@ src-tauri/                  # Rust 后端 (Tauri)
   src/
     main.rs                 # 入口
     lib.rs                  # Tauri Builder
-    commands/               # IPC 命令（21 个端点）
+    commands/               # IPC 命令（26 个端点）
     kafka/                  # Kafka 服务层
       connection_manager.rs # 连接池管理
       consumer_service.rs   # 消费服务
       producer_service.rs   # 生产服务
       topic_service.rs      # Topic 操作
-      group_service.rs      # 消费者组查询
+      group_service.rs      # 消费者组查询（含 Offset/Lag）
+      import_export_service.rs # 消息导入导出
+    security/               # 凭据加密（Windows DPAPI）
     store/                  # 持久化存储
     logging/                # 日志服务
     window/                 # 窗口状态管理

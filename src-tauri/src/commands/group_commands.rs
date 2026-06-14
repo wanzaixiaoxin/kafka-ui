@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::kafka::group_service;
+use crate::store::connection_store::ConnectionRecord;
 use crate::AppState;
 
-fn get_active_conn(state: &AppState) -> Result<crate::store::connection_store::ConnectionRecord, String> {
+fn get_active_conn(state: &AppState) -> Result<ConnectionRecord, String> {
     let store = state.store.try_read().map_err(|e| format!("Lock: {e}"))?;
     let active_id = store
         .get_active()
@@ -37,7 +40,12 @@ pub async fn group_describe(
 ) -> Result<group_service::ConsumerGroupDetail, String> {
     let conn = get_active_conn(&state)?;
     let conn_id = conn.id.clone();
-    let mut mgr = state.conn_mgr.write().await;
-    let admin = mgr.get_admin(&conn_id, &conn)?;
-    group_service::describe_group(&admin, &group_id)
+
+    // 获取池化 AdminClient 后立即释放写锁，避免 offset 查询期间阻塞连接池
+    let admin: Arc<rdkafka::admin::AdminClient<rdkafka::client::DefaultClientContext>> = {
+        let mut mgr = state.conn_mgr.write().await;
+        mgr.get_admin(&conn_id, &conn)?
+    };
+
+    group_service::describe_group(&admin, &conn, &group_id)
 }

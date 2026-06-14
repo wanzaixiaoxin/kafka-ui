@@ -1,6 +1,7 @@
 mod commands;
 mod kafka;
 mod logging;
+mod security;
 mod store;
 mod window;
 

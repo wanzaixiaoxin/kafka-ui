@@ -67,17 +67,17 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 
 **轻量级、开箱即用的 Kafka 桌面 GUI 工具**，聚焦于「查消息、看元数据、管连接」三大核心场景。与同类产品相比，强调以下差异化：
 
-- **Electron 跨平台桌面应用**：原生桌面体验，无需浏览器
-- **全 TypeScript 技术栈**：类型安全，易于维护和扩展
-- **安全架构**：三层进程隔离架构，密码通过操作系统级加密存储
+- **Tauri 桌面应用**：原生桌面体验，无需浏览器，安装包体积小（Rust 后端）
+- **React + TypeScript 前端**：类型安全，易于维护和扩展
+- **安全架构**：Rust 进程隔离，SASL 密码通过 Windows DPAPI 加密存储
 
 ### 3.2 竞品对比
 
 | 维度 | Kafka Client（本项目） | Kafka Tool（Offset Explorer） | Kafdrop（Web） | AKHQ（Web） |
 |------|----------------------|------------------------------|---------------|-------------|
 | 形态 | 桌面客户端 | 桌面客户端 | Web 应用 | Web 应用 |
-| 技术栈 | Electron + React | Java Swing | Spring Boot + React | Spring Boot + Angular |
-| 安装包大小 | ~94MB（Windows） | ~100MB+ | 需部署 | 需部署 |
+| 技术栈 | Tauri + React + Rust | Java Swing | Spring Boot + React | Spring Boot + Angular |
+| Kafka 库 | rdkafka (librdkafka) | 原生 Java | Kafka Java Client | Kafka Java Client |
 | 跨平台 | Windows（可扩展） | Windows/macOS/Linux | 跨平台（浏览器） | 跨平台（浏览器） |
 | SSL/SASL 支持 | 支持 | 支持 | 支持 | 支持 |
 | Topic CRUD | 不支持 | 支持 | 支持 | 支持 |
@@ -97,9 +97,9 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 | F-03 | 连接管理 | 删除连接 | P0 | ✅ 已实现 |
 | F-04 | 连接管理 | 测试连接连通性 | P0 | ✅ 已实现 |
 | F-05 | 连接管理 | 切换当前激活的连接 | P0 | ✅ 已实现 |
-| F-06 | 连接管理 | SSL 加密传输支持 | P0 | ✅ 已实现 |
-| F-07 | 连接管理 | SASL 认证支持（PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512） | P0 | ✅ 已实现 |
-| F-08 | 连接管理 | 密码加密持久化存储 | P0 | ✅ 已实现 |
+| F-06 | 连接管理 | SSL 加密传输支持 | P0 | ⚠️ 需重新编译（默认未启用 OpenSSL feature） |
+| F-07 | 连接管理 | SASL 认证支持（PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512） | P0 | ⚠️ 需重新编译（默认未启用 SASL feature） |
+| F-08 | 连接管理 | 密码加密持久化存储（Windows DPAPI） | P0 | ✅ 已实现 |
 | F-09 | Topic 管理 | 查看 Topic 列表 | P0 | ✅ 已实现 |
 | F-10 | Topic 管理 | Topic 名称搜索/过滤 | P0 | ✅ 已实现 |
 | F-11 | Topic 管理 | 显示/隐藏内部 Topic（__consumer_offsets 等） | P0 | ✅ 已实现 |
@@ -136,6 +136,10 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 | F-42 | 生命周期 | 窗口位置/大小/最大化状态持久化 | P2 | ✅ 已实现 |
 | F-43 | 生命周期 | 应用退出时自动停止所有消费者 | P2 | ✅ 已实现 |
 | F-44 | 生命周期 | 应用重启后自动重建 Kafka 客户端连接 | P2 | ✅ 已实现 |
+| F-45 | Topic 管理 | 创建 Topic（指定分区数/副本因子） | P1 | ✅ 已实现 |
+| F-46 | 数据导入导出 | 消息批量导出（JSONL / CSV 格式） | P1 | ✅ 已实现 |
+| F-47 | 数据导入导出 | 消息批量导入（JSONL / CSV 格式） | P1 | ✅ 已实现 |
+| F-48 | 数据导入导出 | 导入/导出进度推送与取消 | P1 | ✅ 已实现 |
 
 ---
 
@@ -190,7 +194,7 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 **交互细节：**
 - SASL 用户名/密码字段在 SASL 机制选择为"无"时自动隐藏
 - Brokers 地址每行一个，提交时自动按换行分割并 trim
-- 密码通过 Electron `safeStorage.encryptString()` 加密后持久化
+- 密码通过 Windows DPAPI 加密后持久化（`ENC1:<base64>` 格式）
 
 #### 5.1.4 连接测试
 
@@ -208,10 +212,10 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 
 切换连接时的处理流程：
 
-1. 更新 electron-store 中的 `activeConnectionId`
-2. 调用 `connMgr.getActiveKafka()` 重建 Kafka 客户端实例
+1. 更新 JSON 存储中的 `activeConnectionId`
+2. 调用 `connMgr.getActiveKafka()` 预热 Kafka 客户端实例
 3. 调用 `consumerSvc.stopAll()` 停止所有正在运行的消费者
-4. 通过 IPC 广播 `kafka:connection:changed` 事件到所有渲染进程
+4. 通过 Tauri `emit("kafka:connection:changed")` 广播事件到前端
 5. 各页面监听该事件，自动刷新数据
 
 ### 5.2 Topic 管理模块
@@ -426,7 +430,7 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 
 #### 5.7.2 功能
 
-- 展示应用内所有进程（main/renderer/preload）的日志
+- 展示应用内所有日志（Rust 后端 + React 前端转发）
 - 日志条目实时推送
 - Error/Fatal 日志实时统计计数显示在按钮 Badge 上
 - 面板高度可拖拽调整（150px~600px）
@@ -444,10 +448,8 @@ Kafka Client 是一款**轻量级 Kafka 桌面客户端**，基于 Tauri + React
 
 #### 5.7.4 日志服务
 
-- 主进程维护一个 In-Memory 环形缓冲区，最多保留 5000 条日志
-- 截获主进程 `console.log/warn/error/info/debug` 输出
-- 截获 `uncaughtException` 和 `unhandledRejection` 事件
-- 渲染进程通过 `consoleInterceptor.ts` 将日志转发到主进程统一管理
+- Rust 后端维护一个 In-Memory 环形缓冲区，最多保留 5000 条日志
+- 前端通过 `consoleInterceptor.ts` 将日志通过 Tauri event 转发到后端统一管理
 - 应用关闭时日志不持久化
 
 ---
@@ -466,7 +468,7 @@ interface KafkaConnection {
   sasl?: {                // SASL 认证配置（可选）
     mechanism: 'plain' | 'scram-sha-256' | 'scram-sha-512'
     username: string
-    password: string      // 存储时通过 safeStorage 加密
+    password: string      // 存储时通过 DPAPI 加密
   }
   description?: string    // 连接描述
   createdAt: number       // 创建时间戳
@@ -564,7 +566,7 @@ interface LogEntry {
   id: string               // 唯一 ID
   level: 'debug' | 'info' | 'warn' | 'error' | 'fatal'
   timestamp: number        // 时间戳
-  source: 'main' | 'renderer' | 'preload'  // 来源进程
+  source: 'main' | 'renderer'  // 来源进程
   message: string          // 日志消息
   data?: string            // 附加数据（JSON 字符串）
   stack?: string           // 错误堆栈
@@ -740,28 +742,26 @@ interface AppSettings {
 
 ## 9. 技术架构概览
 
-### 9.1 三层进程架构
+### 9.1 双层架构（Tauri）
 
 ```
 ┌─────────────────────────────────────────────┐
-│            React Renderer Process            │
+│           React 前端 (WebView)               │
 │  (Pages / Components / Hooks / API Client)  │
-│                     ↕ IPC via contextBridge │
+│                     ↕ Tauri IPC             │
+│              invoke() / emit() / listen()   │
 ├─────────────────────────────────────────────┤
-│              Preload Script                  │
-│  kafkaApi.ts ─ 类型化 IPC 桥接层            │
-│                     ↕ ipcMain.handle        │
-├─────────────────────────────────────────────┤
-│           Electron Main Process              │
+│              Rust 后端进程                    │
 │  ┌─────────────┐  ┌──────────────────────┐  │
 │  │ Kafka 服务层  │  │ 日志系统 / 存储系统   │  │
 │  │ connMgr     │  │ logService           │  │
 │  │ topicSvc    │  │ connectionStore      │  │
-│  │ producerSvc │  │ (electron-store)     │  │
-│  │ consumerSvc │  └──────────────────────┘  │
-│  │ groupSvc    │                            │
+│  │ producerSvc │  │ (JSON 文件)           │  │
+│  │ consumerSvc │  │ security (DPAPI)     │  │
+│  │ groupSvc    │  └──────────────────────┘  │
+│  │ importExport│                            │
 │  └──────┬──────┘                            │
-│         ↕ KafkaJS                           │
+│         ↕ rdkafka (librdkafka)              │
 ├─────────────────────────────────────────────┤
 │              Kafka Cluster                   │
 └─────────────────────────────────────────────┘
@@ -769,32 +769,36 @@ interface AppSettings {
 
 ### 9.2 安全设计
 
-- **进程隔离**：渲染进程无任何 Node.js 或 KafkaJS 直接访问权限
-- **contextBridge**：通过预加载脚本安全暴露有限 API
-- **密码加密**：使用 Electron `safeStorage`（操作系统级加密）存储 SASL 密码
-- **外部链接**：通过 `setWindowOpenHandler` 控制外部链接打开行为
+- **进程隔离**：前端 WebView 无 Rust / 文件系统直接访问权限
+- **Tauri IPC**：通过 `invoke()` / `emit()` 受控通信
+- **密码加密**：使用 Windows DPAPI (`CryptProtectData` / `CryptUnprotectData`) 加密 SASL 密码
+  - 密文以 `ENC1:<base64>` 格式存储在 JSON 文件中
+  - 加密绑定到当前 Windows 用户账户
+  - 仅内存中持有明文（rdkafka 需要）
 
 ### 9.3 IPC 通信通道
 
-共 18 个 IPC 通道，覆盖所有 Kafka 操作：
+共 26 个 Tauri command，覆盖所有 Kafka 操作：
 
-| 命名空间 | 通道数 | 说明 |
+| 命名空间 | 命令数 | 说明 |
 |---------|--------|------|
-| kafka:connection:* | 6 | 连接 CRUD、测试、激活 |
-| kafka:topic:* | 4 | 列表、详情、Offset、消息拉取 |
-| kafka:producer:* | 1 | 消息发送 |
-| kafka:consumer:* | 3 | 启动/停止/全停 |
-| kafka:group:* | 2 | 列表、详情 |
-| log:* | 2 | 获取日志、清空 |
-| settings:* | 2 | 获取设置、更新设置 |
+| connection_* | 6 | 连接 CRUD、测试、激活 |
+| topic_* | 5 | 列表、详情、Offset、消息拉取、创建 |
+| producer_* | 1 | 消息发送 |
+| consumer_* | 3 | 启动/停止/全停 |
+| group_* | 2 | 列表、详情（含 Offset/Lag） |
+| log_* | 3 | 获取日志、清空、渲染进程日志转发 |
+| export/import_* | 4 | 导出启动/取消、导入启动/取消 |
+| settings_* | 2 | 获取设置、更新设置 |
 
 ### 9.4 数据持久化
 
 | 数据 | 存储方式 | 位置 |
 |------|---------|------|
-| 连接配置 | electron-store（JSON 文件） | `userData/kafka-client-store/` |
-| 窗口状态 | electron-store（JSON 文件） | `userData/window-state/` |
-| 应用设置 | electron-store（与连接配置同文件） | `userData/kafka-client-store/` |
+| 连接配置 | JSON 文件（serde 序列化） | `%APPDATA%/kafka-client/data.json` |
+| 应用设置 | JSON 文件（与连接配置同文件） | `%APPDATA%/kafka-client/data.json` |
+| SASL 密码 | DPAPI 加密后存于 JSON 文件 | `ENC1:<base64>` 格式 |
+| 窗口状态 | JSON 文件 | `%APPDATA%/kafka-client/` |
 | 运行日志 | 内存环形缓冲区（5000 条上限） | 不持久化 |
 
 ---
@@ -813,10 +817,10 @@ interface AppSettings {
 
 ### 10.2 安全性
 
-- 密码通过 Electron `safeStorage` 加密存储（操作系统级加密）
+- SASL 密码通过 Windows DPAPI 加密后存储（绑定用户账户）
 - SASL 密码仅在内存和 IPC 传输中以明文存在
-- 渲染进程无任何 Node.js 或文件系统访问能力
-- 应用外链通过 `shell.openExternal` 打开，不可在应用内嵌入
+- 前端 WebView 无 Rust 或文件系统直接访问能力
+- SSL/SASL 连接需要重新编译 rdkafka（默认未启用 `ssl`/`sasl` feature）
 
 ### 10.3 可靠性
 
@@ -825,16 +829,16 @@ interface AppSettings {
 | 应用重启 | 自动从持久化存储恢复连接配置并重建 Kafka 客户端 |
 | 窗口关闭 | 保存窗口位置/大小状态 |
 | 应用退出 | 先停止所有消费者，再断开所有 Kafka 连接，最后关闭窗口 |
-| API 调用失败 | 返回 `{ error: string }` 结构化错误信息 |
-| IPC 参数错误 | KafkaJS 抛出异常，统一由 catch 块转换为 `{ error }` 返回 |
+| API 调用失败 | 返回 `Err(String)` 由 Tauri 转为异常，或 `Ok(json!({"success":false,"error":...}))` |
+| IPC 参数错误 | serde 反序列化失败返回错误 |
 
 ### 10.4 可维护性
 
 - 全 TypeScript 类型安全
-- 三层代码严格分离（main/preload/renderer）
-- 共享类型定义在 `src/shared/types.ts`，所有层引用同一份
-- IPC 通道注册集中在 `kafkaHandlers.ts` 单文件中
-- Kafka 各业务逻辑分散在各独立 Service 文件中
+- 前后端类型契约单一来源：`frontend/src/types/kafka.ts`
+- Rust 端各业务逻辑分散在各独立 Service 文件中
+- Tauri command 注册集中在 `lib.rs` 的 `generate_handler![]`
+- SASL 密码加解密集中在 `security/` 模块
 
 ---
 
@@ -844,14 +848,16 @@ interface AppSettings {
 
 | 限制 | 说明 |
 |------|------|
-| 仅支持 Windows | electron-builder 当前仅配置了 NSIS Windows 目标 |
-| 无 Topic 管理能力 | 不支持创建、删除、修改 Topic |
-| 无 Schema Registry | 无法查看 Avro/Protobuf 序列化的消息 |
+| 仅支持 Windows | tauri.conf.json 当前仅配置了 NSIS Windows 目标 |
+| SSL/SASL 需重新编译 | 默认 rdkafka 未启用 `ssl`/`sasl` feature，需安装 OpenSSL 后修改 Cargo.toml 重新构建 |
+| 无 Topic 删除/修改 | 不支持删除 Topic、修改分区数或副本因子 |
+| 无 Schema Registry | 无法查看 Avro/Protobuf 序列化的消息（二进制消息会因 `String::from_utf8_lossy` 损坏） |
 | 无消息搜索/过滤 | 不支持按内容搜索或过滤消息 |
 | 无多 Tab 支持 | 同一时刻只能消费一个 Topic |
 | 无连接状态自动恢复 | 连接断开后不会自动重连 |
 | 日志不持久化 | DevTools 面板日志在应用重启后丢失 |
-| 无导出功能 | 不支持导出消息或消费者组数据 |
+| 消费者组 Offset/Lag 查询较慢 | 需 assign 全部分区查询 committed offset，大型集群可能耗时较长 |
+| macOS/Linux 加密未实现 | 非 Windows 平台 security 模块为占位实现（密码明文存储） |
 
 ### 11.2 后续规划建议
 

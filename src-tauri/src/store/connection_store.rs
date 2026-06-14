@@ -95,9 +95,27 @@ impl ConnectionStore {
         let Ok(data) = std::fs::read_to_string(&path) else {
             return;
         };
-        let Ok(persisted) = serde_json::from_str::<PersistedData>(&data) else {
+        let Ok(mut persisted) = serde_json::from_str::<PersistedData>(&data) else {
             return;
         };
+        // 解密 SASL 密码（从 ENC1:<base64> 还原为明文，内存中始终保持明文）
+        for c in &mut persisted.connections {
+            if let Some(ref mut sasl) = c.sasl {
+                if !sasl.password.is_empty() && crate::security::is_encrypted(&sasl.password) {
+                    match crate::security::decrypt_string(&sasl.password) {
+                        Ok(dec) => sasl.password = dec,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to decrypt SASL password for '{}': {} — password reset to empty",
+                                c.name,
+                                e
+                            );
+                            sasl.password = String::new();
+                        }
+                    }
+                }
+            }
+        }
         for c in persisted.connections {
             self.connections.insert(c.id.clone(), c);
         }
@@ -115,13 +133,39 @@ impl ConnectionStore {
             Some(p) => p,
             None => return,
         };
+        // 克隆连接列表，在序列化前加密 SASL 密码
+        // （内存中的 self.connections 始终是明文，仅落盘时加密）
+        let connections: Vec<ConnectionRecord> = self
+            .connections
+            .values()
+            .cloned()
+            .map(|mut c| {
+                if let Some(ref mut sasl) = c.sasl {
+                    if !sasl.password.is_empty() && !crate::security::is_encrypted(&sasl.password)
+                    {
+                        match crate::security::encrypt_string(&sasl.password) {
+                            Ok(enc) => sasl.password = enc,
+                            Err(e) => tracing::error!(
+                                "Failed to encrypt SASL password for '{}': {} — stored as-is",
+                                c.name,
+                                e
+                            ),
+                        }
+                    }
+                }
+                c
+            })
+            .collect();
+
         let data = PersistedData {
-            connections: self.connections.values().cloned().collect(),
+            connections,
             active_connection_id: self.active_id.clone(),
             settings: self.settings.clone(),
         };
         if let Ok(json) = serde_json::to_string_pretty(&data) {
-            std::fs::write(&path, json).ok();
+            if let Err(e) = std::fs::write(&path, json) {
+                tracing::error!("Failed to write store {}: {}", path.display(), e);
+            }
         }
     }
 
